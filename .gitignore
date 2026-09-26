@@ -1,0 +1,10 @@
+*.js
+!jest.config.js
+# AppSync JS resolvers are hand-written source, not compiled TS output -- must not be ignored
+!graphql/resolvers/*.js
+*.d.ts
+node_modules
+
+# CDK asset staging directory
+.cdk.staging
+cdk.out

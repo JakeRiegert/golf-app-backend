@@ -1,0 +1,19 @@
+type Tournament {
+  id: ID!
+  name: String!
+  createdAt: AWSDateTime!
+  organizerId: String!
+}
+
+type Query {
+  getTournament(id: ID!): Tournament
+}
+
+type Mutation {
+  createTournament(name: String!): Tournament!
+}
+
+schema {
+  query: Query
+  mutation: Mutation
+}
