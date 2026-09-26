@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as appsync from 'aws-cdk-lib/aws-appsync';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
@@ -97,5 +98,41 @@ export class GolfAppBackendStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'GraphQLApiUrl', { value: api.graphqlUrl });
     new cdk.CfnOutput(this, 'GraphQLApiId', { value: api.apiId });
     new cdk.CfnOutput(this, 'Region', { value: cdk.Stack.of(this).region });
+
+    // --- CI/CD: GitHub Actions OIDC federation, no stored AWS credentials in GitHub ---
+    // GitHub's token issuer, trusted account-wide. clientIds: ['sts.amazonaws.com'] is the
+    // fixed audience GitHub's OIDC tokens carry -- required, not a per-repo value.
+    const githubOidcProvider = new iam.OpenIdConnectProvider(this, 'GitHubOidcProvider', {
+      url: 'https://token.actions.githubusercontent.com',
+      clientIds: ['sts.amazonaws.com'],
+    });
+
+    // Scoped to exactly this repo, exactly the main branch -- a workflow run from a PR
+    // branch, a fork, or any other repo cannot assume this role, only a push to main here.
+    const githubDeployRole = new iam.Role(this, 'GitHubActionsDeployRole', {
+      roleName: 'github-actions-golf-app-backend-deploy',
+      assumedBy: new iam.FederatedPrincipal(
+        githubOidcProvider.openIdConnectProviderArn,
+        {
+          StringEquals: {
+            'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+          },
+          StringLike: {
+            'token.actions.githubusercontent.com:sub':
+              'repo:JakeRiegert/golf-app-backend:ref:refs/heads/main',
+          },
+        },
+        'sts:AssumeRoleWithWebIdentity',
+      ),
+      // AdministratorAccess, same pragmatic call as the jake-dev local IAM user (see
+      // docs/blueprint.md) -- broader than ideal, reasonable for a solo hobby project,
+      // worth scoping down later rather than blocking on it now.
+      managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('AdministratorAccess')],
+      maxSessionDuration: cdk.Duration.hours(1),
+    });
+
+    new cdk.CfnOutput(this, 'GitHubActionsDeployRoleArn', {
+      value: githubDeployRole.roleArn,
+    });
   }
 }
