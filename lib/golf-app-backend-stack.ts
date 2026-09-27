@@ -3,14 +3,17 @@ import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as appsync from 'aws-cdk-lib/aws-appsync';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
 // Golf Live Scoring — first end-to-end slice: create a tournament with just a name.
 // Scope deliberately cut down from the full design (see docs/blueprint.md in the design
-// repo): native Cognito auth instead of Google/Apple federation, and a direct AppSync ->
-// DynamoDB resolver instead of the tournaments-roster Lambda. Both get layered back in once
-// this thin slice is proven end to end.
+// repo): native Cognito auth instead of Google/Apple federation. `createTournament` now runs
+// through a real Lambda RPC (the seed of the documented tournaments-roster Lambda) instead of
+// a direct AppSync -> DynamoDB resolver -- `getTournament` stays a direct resolver, matching
+// the three-channel design (reads stay direct, this write needed real logic).
 
 export class GolfAppBackendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -74,13 +77,25 @@ export class GolfAppBackendStack extends cdk.Stack {
       tournamentsTable,
     );
 
-    tournamentsDataSource.createResolver('CreateTournamentResolver', {
+    // --- tournamentsRoster Lambda RPC (see docs/blueprint.md Lambda decomposition) ---
+    const tournamentsRosterFn = new NodejsFunction(this, 'TournamentsRosterFunction', {
+      functionName: 'tournaments-roster',
+      entry: path.join(__dirname, '../lambda/tournamentsRoster/index.ts'),
+      runtime: lambda.Runtime.NODEJS_24_X,
+      environment: {
+        TOURNAMENTS_TABLE_NAME: tournamentsTable.tableName,
+      },
+    });
+    tournamentsTable.grantWriteData(tournamentsRosterFn);
+
+    const tournamentsRosterDataSource = api.addLambdaDataSource(
+      'TournamentsRosterDataSource',
+      tournamentsRosterFn,
+    );
+
+    tournamentsRosterDataSource.createResolver('CreateTournamentResolver', {
       typeName: 'Mutation',
       fieldName: 'createTournament',
-      runtime: appsync.FunctionRuntime.JS_1_0_0,
-      code: appsync.Code.fromAsset(
-        path.join(__dirname, '../graphql/resolvers/createTournament.js'),
-      ),
     });
 
     tournamentsDataSource.createResolver('GetTournamentResolver', {
@@ -118,8 +133,12 @@ export class GolfAppBackendStack extends cdk.Stack {
             'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
           },
           StringLike: {
+            // This repo was created after GitHub's July 15, 2026 cutover, so it's opted into
+            // "immutable subject claims" (Settings > Actions > OIDC) and forced onto it -- the
+            // sub claim embeds owner/repo NUMERIC IDs alongside the names, not the classic
+            // repo:owner/repo:ref:... format. Value copied verbatim from that settings page.
             'token.actions.githubusercontent.com:sub':
-              'repo:JakeRiegert/golf-app-backend:ref:refs/heads/main',
+              'repo:JakeRiegert@41297707/golf-app-backend@1389607136:ref:refs/heads/main',
           },
         },
         'sts:AssumeRoleWithWebIdentity',
@@ -147,7 +166,7 @@ export class GolfAppBackendStack extends cdk.Stack {
           },
           StringLike: {
             'token.actions.githubusercontent.com:sub':
-              'repo:JakeRiegert/golf-app-backend:ref:refs/heads/main',
+              'repo:JakeRiegert@41297707/golf-app-backend@1389607136:ref:refs/heads/main',
           },
         },
       }),
