@@ -131,6 +131,28 @@ export class GolfAppBackendStack extends cdk.Stack {
       maxSessionDuration: cdk.Duration.hours(1),
     });
 
+    // aws-actions/configure-aws-credentials tags the assumed session by default even under
+    // OIDC. sts:AssumeRoleWithWebIdentity alone isn't enough to permit that -- sts:TagSession
+    // must be explicitly allowed too, or AWS denies the whole request (surfaced as a generic
+    // "Not authorized to perform sts:AssumeRoleWithWebIdentity", not a tagging-specific error,
+    // which is what made this one non-obvious to diagnose from the log alone).
+    githubDeployRole.assumeRolePolicy!.addStatements(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        principals: [new iam.FederatedPrincipal(githubOidcProvider.openIdConnectProviderArn, {})],
+        actions: ['sts:TagSession'],
+        conditions: {
+          StringEquals: {
+            'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+          },
+          StringLike: {
+            'token.actions.githubusercontent.com:sub':
+              'repo:JakeRiegert/golf-app-backend:ref:refs/heads/main',
+          },
+        },
+      }),
+    );
+
     new cdk.CfnOutput(this, 'GitHubActionsDeployRoleArn', {
       value: githubDeployRole.roleArn,
     });
