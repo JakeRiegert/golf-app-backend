@@ -5,12 +5,23 @@ type Tournament {
   organizerId: String!
 }
 
+type Player {
+  id: ID!
+  email: String
+  displayName: String
+  avatarUrl: String
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
 type Query {
   getTournament(id: ID!): Tournament
+  getPlayer(id: ID!): Player
 }
 
 type Mutation {
   createTournament(name: String!): Tournament!
+  upsertPlayerProfile(displayName: String, avatarUrl: String): Player!
 }
 
 schema {

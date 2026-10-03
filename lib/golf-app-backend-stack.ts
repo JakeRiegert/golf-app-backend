@@ -10,16 +10,23 @@ import * as path from 'path';
 
 // Golf Live Scoring — first end-to-end slice: create a tournament with just a name.
 // Scope deliberately cut down from the full design (see docs/blueprint.md in the design
-// repo): native Cognito auth instead of Google/Apple federation. `createTournament` now runs
-// through a real Lambda RPC (the seed of the documented tournaments-roster Lambda) instead of
-// a direct AppSync -> DynamoDB resolver -- `getTournament` stays a direct resolver, matching
-// the three-channel design (reads stay direct, this write needed real logic).
+// repo): `createTournament` now runs through a real Lambda RPC (the seed of the documented
+// tournaments-roster Lambda) instead of a direct AppSync -> DynamoDB resolver --
+// `getTournament` stays a direct resolver, matching the three-channel design (reads stay
+// direct, this write needed real logic).
+//
+// Auth: native Cognito email/password plus Google federation (least-friction login is the
+// product goal -- "Continue with Google" is the primary path, email/password is the fallback
+// for anyone without a Google account). Apple Sign-In is deliberately deferred -- it needs a
+// paid Apple Developer account, not worth it until we're actually preparing an App Store
+// submission -- but Cognito's hosted UI/domain setup here is federation-provider-agnostic, so
+// adding it later is just another UserPoolIdentityProvider, no rework of this plumbing.
 
 export class GolfAppBackendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // --- Auth: Cognito User Pool, native email/password for now ---
+    // --- Auth: Cognito User Pool, native email/password + Google federation ---
     const userPool = new cognito.UserPool(this, 'GolfAppUserPool', {
       userPoolName: 'golf-app-users',
       selfSignUpEnabled: true,
@@ -39,11 +46,56 @@ export class GolfAppBackendStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY, // dev/portfolio project -- fine to tear down
     });
 
+    // Hosted UI domain -- required for any federated (Google/Apple/etc.) sign-in redirect,
+    // even though native email/password auth doesn't use it. Prefix must be globally unique
+    // across all of Cognito, not just this account.
+    const userPoolDomain = userPool.addDomain('GolfAppUserPoolDomain', {
+      cognitoDomain: { domainPrefix: 'golf-live-scoring-jr' },
+    });
+
+    // Google client secret is never committed -- read from the environment both locally
+    // (set it in your shell before `cdk deploy`) and in CI (GitHub Actions repo secret,
+    // passed as an env var in deploy.yml). The stack still deploys fine without it, just
+    // without Google as a sign-in option, so this doesn't block unrelated deploys.
+    const googleClientId = process.env.GOOGLE_CLIENT_ID;
+    const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const googleEnabled = Boolean(googleClientId && googleClientSecret);
+
+    // Local dev callback -- Flutter web-server preview runs on a fixed port (see
+    // .claude/launch.json). Production/mobile callback URLs get added once those exist.
+    const oAuthCallbackUrls = ['http://localhost:5000/'];
+
+    let googleProvider: cognito.UserPoolIdentityProviderGoogle | undefined;
+    if (googleEnabled) {
+      googleProvider = new cognito.UserPoolIdentityProviderGoogle(this, 'GoogleIdentityProvider', {
+        userPool,
+        clientId: googleClientId!,
+        clientSecretValue: cdk.SecretValue.unsafePlainText(googleClientSecret!),
+        scopes: ['openid', 'email', 'profile'],
+        attributeMapping: {
+          email: cognito.ProviderAttribute.GOOGLE_EMAIL,
+        },
+      });
+    }
+
     const userPoolClient = new cognito.UserPoolClient(this, 'GolfAppUserPoolClient', {
       userPool,
       authFlows: { userSrp: true },
       generateSecret: false, // required for a mobile/public client
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
+        callbackUrls: oAuthCallbackUrls,
+        logoutUrls: oAuthCallbackUrls,
+      },
+      supportedIdentityProviders: [
+        cognito.UserPoolClientIdentityProvider.COGNITO,
+        ...(googleEnabled ? [cognito.UserPoolClientIdentityProvider.GOOGLE] : []),
+      ],
     });
+    if (googleProvider) {
+      userPoolClient.node.addDependency(googleProvider);
+    }
 
     // --- Data: Tournaments table ---
     // On-demand billing (see cost guardrails in docs/blueprint.md). PK/SK match the
@@ -51,6 +103,17 @@ export class GolfAppBackendStack extends cdk.Stack {
     // only ever writes the Tournament METADATA item, but the key shape is the real one.
     const tournamentsTable = new dynamodb.TableV2(this, 'TournamentsTable', {
       tableName: 'Tournaments',
+      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+      billing: dynamodb.Billing.onDemand(),
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // dev/portfolio project
+    });
+
+    // --- Data: Players table ---
+    // Standalone table, never bundled with Tournaments -- no query ever needs a Tournament
+    // item and a Player item back in the same Query call (see docs/blueprint.md).
+    const playersTable = new dynamodb.TableV2(this, 'PlayersTable', {
+      tableName: 'Players',
       partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(),
@@ -107,9 +170,54 @@ export class GolfAppBackendStack extends cdk.Stack {
       ),
     });
 
+    // --- players Lambda RPC (see docs/blueprint.md Lambda decomposition, function #1) ---
+    const playersFn = new NodejsFunction(this, 'PlayersFunction', {
+      functionName: 'players',
+      entry: path.join(__dirname, '../lambda/players/index.ts'),
+      runtime: lambda.Runtime.NODEJS_24_X,
+      environment: {
+        PLAYERS_TABLE_NAME: playersTable.tableName,
+        USER_POOL_ID: userPool.userPoolId,
+      },
+    });
+    playersTable.grantWriteData(playersFn);
+    // Amplify Flutter sends the access token for AppSync Cognito User Pools auth, which never
+    // carries email (see lambda/players/index.ts) -- this Lambda looks it up directly instead.
+    playersFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['cognito-idp:ListUsers'],
+        resources: [userPool.userPoolArn],
+      }),
+    );
+
+    const playersDataSource = api.addLambdaDataSource('PlayersDataSource', playersFn);
+
+    playersDataSource.createResolver('UpsertPlayerProfileResolver', {
+      typeName: 'Mutation',
+      fieldName: 'upsertPlayerProfile',
+    });
+
+    const playersReadDataSource = api.addDynamoDbDataSource(
+      'PlayersReadDataSource',
+      playersTable,
+    );
+
+    playersReadDataSource.createResolver('GetPlayerResolver', {
+      typeName: 'Query',
+      fieldName: 'getPlayer',
+      runtime: appsync.FunctionRuntime.JS_1_0_0,
+      code: appsync.Code.fromAsset(
+        path.join(__dirname, '../graphql/resolvers/getPlayer.js'),
+      ),
+    });
+
     // --- Outputs the Flutter app's Amplify config needs ---
     new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
+    new cdk.CfnOutput(this, 'UserPoolDomain', {
+      value: userPoolDomain.baseUrl(),
+      description: 'Cognito Hosted UI base URL -- append /oauth2/idpresponse for the Google/Apple redirect URI',
+    });
     new cdk.CfnOutput(this, 'GraphQLApiUrl', { value: api.graphqlUrl });
     new cdk.CfnOutput(this, 'GraphQLApiId', { value: api.apiId });
     new cdk.CfnOutput(this, 'Region', { value: cdk.Stack.of(this).region });
