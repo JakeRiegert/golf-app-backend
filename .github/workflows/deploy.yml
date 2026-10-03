@@ -33,4 +33,7 @@ jobs:
           aws-region: us-east-1
 
       - name: cdk deploy
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: npx cdk deploy --require-approval never
