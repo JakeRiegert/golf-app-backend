@@ -3,6 +3,11 @@ type Tournament {
   name: String!
   createdAt: AWSDateTime!
   organizerId: String!
+  inviteCode: String!
+  startDate: AWSDate
+  endDate: AWSDate
+  coAdminId: String
+  wagerPotAmount: Float
 }
 
 type Player {
@@ -14,14 +19,54 @@ type Player {
   updatedAt: AWSDateTime!
 }
 
+type TournamentPlayer {
+  tournamentId: ID!
+  playerId: ID!
+  teamId: ID
+  handicap: Float
+  joinedAt: AWSDateTime!
+}
+
+type Team {
+  id: ID!
+  tournamentId: ID!
+  name: String!
+  color: String
+  createdAt: AWSDateTime!
+}
+
+input TeamInput {
+  name: String!
+  color: String
+}
+
 type Query {
   getTournament(id: ID!): Tournament
   getPlayer(id: ID!): Player
+  getTournamentPlayers(tournamentId: ID!): [TournamentPlayer!]!
+  getTeams(tournamentId: ID!): [Team!]!
 }
 
 type Mutation {
-  createTournament(name: String!): Tournament!
+  createTournament(name: String!, startDate: AWSDate, endDate: AWSDate): Tournament!
   upsertPlayerProfile(displayName: String, avatarUrl: String): Player!
+  joinTournament(inviteCode: String!): TournamentPlayer!
+  updateTournament(
+    tournamentId: ID!
+    name: String
+    startDate: AWSDate
+    endDate: AWSDate
+    wagerPotAmount: Float
+  ): Tournament!
+  assignCoAdmin(tournamentId: ID!, playerId: ID!): Tournament!
+  createTeams(tournamentId: ID!, teams: [TeamInput!]!): [Team!]!
+  updateTeam(tournamentId: ID!, teamId: ID!, name: String, color: String): Team!
+  assignTournamentPlayer(
+    tournamentId: ID!
+    playerId: ID!
+    teamId: ID
+    handicap: Float
+  ): TournamentPlayer!
 }
 
 schema {

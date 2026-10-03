@@ -80,7 +80,9 @@ export class GolfAppBackendStack extends cdk.Stack {
 
     const userPoolClient = new cognito.UserPoolClient(this, 'GolfAppUserPoolClient', {
       userPool,
-      authFlows: { userSrp: true },
+      // adminUserPassword enables AdminInitiateAuth for scripted/CLI testing (no SRP
+      // implementation needed outside the app) -- additive, reversible, dev-only convenience.
+      authFlows: { userSrp: true, adminUserPassword: true },
       generateSecret: false, // required for a mobile/public client
       oAuth: {
         flows: { authorizationCodeGrant: true },
@@ -107,6 +109,19 @@ export class GolfAppBackendStack extends cdk.Stack {
       sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(),
       removalPolicy: cdk.RemovalPolicy.DESTROY, // dev/portfolio project
+      // Invite-code -> tournament lookup (joinTournament). Adding a GSI to an existing table
+      // is a non-destructive, additive update -- no replacement risk, unlike Cognito schema
+      // changes (see the players Lambda plan). GSI1 (the future "my tournaments" query) isn't
+      // defined here yet since nothing queries it this round -- TournamentPlayer items already
+      // carry GSI1PK/GSI1SK attributes, so adding that index later needs no backfill.
+      globalSecondaryIndexes: [
+        {
+          indexName: 'GSI2',
+          partitionKey: { name: 'GSI2PK', type: dynamodb.AttributeType.STRING },
+          sortKey: { name: 'GSI2SK', type: dynamodb.AttributeType.STRING },
+          projectionType: dynamodb.ProjectionType.ALL,
+        },
+      ],
     });
 
     // --- Data: Players table ---
@@ -149,7 +164,10 @@ export class GolfAppBackendStack extends cdk.Stack {
         TOURNAMENTS_TABLE_NAME: tournamentsTable.tableName,
       },
     });
-    tournamentsTable.grantWriteData(tournamentsRosterFn);
+    // grantReadWriteData (not just grantWriteData) -- the new operations need GetItem
+    // (assertOrganizerOrCoAdmin, the team-existence check) and Query against GSI2
+    // (joinTournament's invite-code lookup), not just writes like createTournament alone did.
+    tournamentsTable.grantReadWriteData(tournamentsRosterFn);
 
     const tournamentsRosterDataSource = api.addLambdaDataSource(
       'TournamentsRosterDataSource',
@@ -160,6 +178,30 @@ export class GolfAppBackendStack extends cdk.Stack {
       typeName: 'Mutation',
       fieldName: 'createTournament',
     });
+    tournamentsRosterDataSource.createResolver('JoinTournamentResolver', {
+      typeName: 'Mutation',
+      fieldName: 'joinTournament',
+    });
+    tournamentsRosterDataSource.createResolver('UpdateTournamentResolver', {
+      typeName: 'Mutation',
+      fieldName: 'updateTournament',
+    });
+    tournamentsRosterDataSource.createResolver('AssignCoAdminResolver', {
+      typeName: 'Mutation',
+      fieldName: 'assignCoAdmin',
+    });
+    tournamentsRosterDataSource.createResolver('CreateTeamsResolver', {
+      typeName: 'Mutation',
+      fieldName: 'createTeams',
+    });
+    tournamentsRosterDataSource.createResolver('UpdateTeamResolver', {
+      typeName: 'Mutation',
+      fieldName: 'updateTeam',
+    });
+    tournamentsRosterDataSource.createResolver('AssignTournamentPlayerResolver', {
+      typeName: 'Mutation',
+      fieldName: 'assignTournamentPlayer',
+    });
 
     tournamentsDataSource.createResolver('GetTournamentResolver', {
       typeName: 'Query',
@@ -167,6 +209,22 @@ export class GolfAppBackendStack extends cdk.Stack {
       runtime: appsync.FunctionRuntime.JS_1_0_0,
       code: appsync.Code.fromAsset(
         path.join(__dirname, '../graphql/resolvers/getTournament.js'),
+      ),
+    });
+    tournamentsDataSource.createResolver('GetTournamentPlayersResolver', {
+      typeName: 'Query',
+      fieldName: 'getTournamentPlayers',
+      runtime: appsync.FunctionRuntime.JS_1_0_0,
+      code: appsync.Code.fromAsset(
+        path.join(__dirname, '../graphql/resolvers/getTournamentPlayers.js'),
+      ),
+    });
+    tournamentsDataSource.createResolver('GetTeamsResolver', {
+      typeName: 'Query',
+      fieldName: 'getTeams',
+      runtime: appsync.FunctionRuntime.JS_1_0_0,
+      code: appsync.Code.fromAsset(
+        path.join(__dirname, '../graphql/resolvers/getTeams.js'),
       ),
     });
 
