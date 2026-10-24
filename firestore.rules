@@ -1,0 +1,93 @@
+rules_version = '2';
+
+// Clients READ Firestore directly (live listeners) but never WRITE it: every write goes through
+// a Cloud Function, which uses the Admin SDK (bypasses these rules) and is where authorization
+// and usage logging live. Rules are per-document, never per-field, so anything with a different
+// audience lives in its own document (email in players/{uid}/private, invite code in
+// tournaments/{id}/private). The top-level inviteCodes/** collection is intentionally unmatched
+// below: no client may touch it, only the join function (Admin SDK).
+//
+// Tournament docs always carry visibility ('private' | 'public') and status ('active' |
+// 'suspended'); createTournament sets both. status/visibility are read with .get(..., default) so
+// a missing field fails closed instead of erroring the whole expression.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return request.auth.uid;
+    }
+
+    function tournamentOf(tid) {
+      return get(/databases/$(database)/documents/tournaments/$(tid)).data;
+    }
+
+    function isAdmin(tid) {
+      return tournamentOf(tid).get('organizerId', null) == me()
+          || tournamentOf(tid).get('coAdminId', null) == me();
+    }
+
+    function isMember(tid) {
+      return exists(/databases/$(database)/documents/tournaments/$(tid)/players/$(me()));
+    }
+
+    function isActive(tid) {
+      return tournamentOf(tid).get('status', 'suspended') == 'active';
+    }
+
+    function isPublic(tid) {
+      return tournamentOf(tid).get('visibility', 'private') == 'public';
+    }
+
+    // Everything under a tournament except private/*: admins always; others only while the
+    // tournament is active, and only if it is public (spectating) or they are on the roster.
+    function canView(tid) {
+      return signedIn() && (isAdmin(tid) || (isActive(tid) && (isPublic(tid) || isMember(tid))));
+    }
+
+    // Invite code and other settings: admins, and roster members of an active tournament.
+    // Spectators of a public tournament never see these.
+    function canViewPrivate(tid) {
+      return signedIn() && (isAdmin(tid) || (isActive(tid) && isMember(tid)));
+    }
+
+    match /players/{playerId} {
+      allow read: if signedIn();
+      allow write: if false;
+
+      match /private/{docId} {
+        allow read: if signedIn() && me() == playerId;
+        allow write: if false;
+      }
+    }
+
+    match /tournaments/{tid} {
+      // The tournament document itself is read via resource.data (no extra get()).
+      allow read: if signedIn() && (
+        resource.data.get('organizerId', null) == me()
+        || resource.data.get('coAdminId', null) == me()
+        || (resource.data.get('status', 'suspended') == 'active'
+            && (resource.data.get('visibility', 'private') == 'public' || isMember(tid)))
+      );
+      allow write: if false;
+
+      match /players/{pid} {
+        allow read: if canView(tid);
+        allow write: if false;
+      }
+
+      match /teams/{teamId} {
+        allow read: if canView(tid);
+        allow write: if false;
+      }
+
+      match /private/{docId} {
+        allow read: if canViewPrivate(tid);
+        allow write: if false;
+      }
+    }
+  }
+}

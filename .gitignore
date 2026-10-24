@@ -5,6 +5,11 @@
 *.d.ts
 node_modules
 
+# Firebase emulator/debug output and compiled functions
+.firebase/
+*-debug.log
+functions/lib
+
 # CDK asset staging directory
 .cdk.staging
 cdk.out
