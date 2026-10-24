@@ -64,6 +64,17 @@ service cloud.firestore {
       }
     }
 
+    // "My tournaments": a collection-group query on roster entries filtered by playerId. Each
+    // roster entry carries the player's uid, so a player can list (and read) only their own
+    // entries, in any tournament, including a suspended one (so the app can say it is suspended
+    // instead of the tournament silently vanishing). The entry holds only that player's own
+    // team and handicap. Reading the tournament itself is still governed by the rules below.
+    // This also matches top-level players/{uid} profile docs, which have no playerId field, so
+    // it never grants them.
+    match /{path=**}/players/{entryId} {
+      allow read: if signedIn() && resource.data.get('playerId', null) == me();
+    }
+
     match /tournaments/{tid} {
       // The tournament document itself is read via resource.data (no extra get()).
       allow read: if signedIn() && (

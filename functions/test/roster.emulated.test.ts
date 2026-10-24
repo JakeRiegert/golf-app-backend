@@ -46,7 +46,7 @@ describe('joinTournament', () => {
     expect(result).toEqual({ tournamentId: t.id, name: 'Join Me', alreadyMember: false });
     expect(await rosterIds(t.id)).toEqual(['org1', 'p1']);
     const entry = (await db.collection('tournaments').doc(t.id).collection('players').doc('p1').get()).data();
-    expect(entry).toMatchObject({ teamId: null, handicap: null });
+    expect(entry).toMatchObject({ playerId: 'p1', teamId: null, handicap: null });
     expect(entry?.joinedAt).toBeDefined();
     expect(usage.tournamentId).toBe(t.id);
     expect(usage.docsWritten).toBe(1);

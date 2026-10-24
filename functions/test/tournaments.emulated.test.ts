@@ -69,7 +69,7 @@ describe('createTournament', () => {
     expect(tournament).not.toHaveProperty('inviteCode'); // spectators can read this document
 
     const roster = (await tRef.collection('players').doc('org1').get()).data();
-    expect(roster).toMatchObject({ teamId: null, handicap: null });
+    expect(roster).toMatchObject({ playerId: 'org1', teamId: null, handicap: null });
     expect(roster?.joinedAt).toBeDefined();
 
     expect((await tRef.collection('private').doc('settings').get()).data()).toMatchObject({

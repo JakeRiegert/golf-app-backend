@@ -6,8 +6,19 @@ import {
   initializeTestEnvironment,
   RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { deleteDoc, doc, getDoc, getDocs, collection, setDoc, updateDoc } from 'firebase/firestore';
-import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
+import {
+  collection,
+  collectionGroup,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 // Run through `npm run test:rules`, which starts the Firestore emulator around vitest.
 // Seed users: org = organizer, co = co-admin (NOT on the roster), mem = roster member,
@@ -159,5 +170,33 @@ describe('client writes are always denied (all writes go through functions)', ()
     const db = as('alice');
     await assertFails(updateDoc(doc(db, 'players', 'alice'), { displayName: 'Hacked' }));
     await assertFails(setDoc(doc(db, 'players', 'alice', 'private', 'profile'), { email: 'x@y.z' }));
+  });
+});
+
+describe('my tournaments (collection-group query on roster entries)', () => {
+  const mine = (db: ReturnType<typeof as>, uid: string) =>
+    getDocs(query(collectionGroup(db, 'players'), where('playerId', '==', uid)));
+
+  it('a player can list their own roster entries across tournaments, including suspended ones', async () => {
+    const snap = await assertSucceeds(mine(as('mem'), 'mem'));
+    expect(snap.docs.map((d) => d.ref.parent.parent?.id).sort()).toEqual(['t1', 't2', 't3', 't4']);
+  });
+
+  it("cannot list someone else's entries", async () => {
+    await assertFails(mine(as('stranger'), 'mem'));
+  });
+
+  it('cannot list every roster entry by omitting the filter', async () => {
+    await assertFails(getDocs(collectionGroup(as('mem'), 'players')));
+  });
+
+  it('a signed-out user cannot list anything', async () => {
+    await assertFails(mine(anon(), 'mem'));
+  });
+
+  it("does not widen anything else: other players' entries and private profiles stay closed", async () => {
+    await assertFails(getDoc(doc(as('stranger'), 'tournaments', 't1', 'players', 'mem')));
+    await assertSucceeds(getDoc(doc(as('mem'), 'tournaments', 't3', 'players', 'mem')));
+    await assertFails(getDoc(doc(as('stranger'), 'players', 'alice', 'private', 'profile')));
   });
 });
