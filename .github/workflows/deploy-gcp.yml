@@ -1,0 +1,61 @@
+name: Deploy to Google Cloud
+
+# Manual for now (Run workflow button). It does nothing until the repository variables below are set,
+# so it cannot fail noisily on a fresh clone. Switch the trigger to `push: branches: [main]` at the
+# Phase 7 cutover, in the same change that removes the AWS deploy workflow.
+#
+# Authentication is Workload Identity Federation: GitHub proves who it is with a short-lived OIDC
+# token and Google hands back short-lived credentials. No service-account key is stored anywhere.
+# Setup steps and the one-time gcloud commands are in ops/DEPLOY.md.
+#
+# Repository variables (Settings > Secrets and variables > Actions > Variables), not secrets, since
+# none of them is sensitive:
+#   GCP_PROJECT_ID        golf-live-scoring-app-510200
+#   WIF_PROVIDER          projects/<number>/locations/global/workloadIdentityPools/github/providers/github-actions
+#   WIF_SERVICE_ACCOUNT   github-deployer@golf-live-scoring-app-510200.iam.gserviceaccount.com
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # lets the job request the OIDC token Google exchanges for credentials
+
+concurrency:
+  group: deploy-gcp
+  cancel-in-progress: false # never interrupt a deploy half way
+
+jobs:
+  deploy:
+    if: ${{ vars.WIF_PROVIDER != '' && vars.WIF_SERVICE_ACCOUNT != '' && vars.GCP_PROJECT_ID != '' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: functions
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The same gates CI runs, so a deploy can never ship code that does not build or pass its
+      # unit tests. (Emulator tests already ran in CI on this commit.)
+      - name: Type-check and build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - name: Deploy functions, Firestore rules and indexes
+        working-directory: .
+        run: npx --prefix functions firebase deploy --only functions,firestore --project "${{ vars.GCP_PROJECT_ID }}" --non-interactive
