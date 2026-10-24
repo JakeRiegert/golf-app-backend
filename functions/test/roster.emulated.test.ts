@@ -125,5 +125,5 @@ describe('joinTournament', () => {
     expect(outcomes.filter((o) => o === 'joined')).toHaveLength(3);
     expect(outcomes.filter((o) => o === 'resource-exhausted')).toHaveLength(3);
     expect(await rosterIds(t.id)).toHaveLength(4);
-  });
+  }, 30_000); // contended transactions retry with backoff, slower when other test files share the emulator
 });

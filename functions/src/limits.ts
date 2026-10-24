@@ -17,3 +17,7 @@ export type Visibility = (typeof VISIBILITY)[keyof typeof VISIBILITY];
 export const MAX_TOURNAMENT_NAME_LENGTH = 100;
 export const MAX_TEAMS_PER_TOURNAMENT = 20;
 export const MAX_TEAM_NAME_LENGTH = 50;
+
+// Handicap index range accepted from an admin (WHS allows up to 54.0; plus handicaps are negative).
+export const MIN_HANDICAP = -10;
+export const MAX_HANDICAP = 54;

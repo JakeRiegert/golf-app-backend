@@ -116,6 +116,7 @@ export async function createTournament(
     batch.create(tournamentRef.collection('players').doc(uid), {
       playerId: uid,
       teamId: null,
+      teamAssignedBy: null,
       handicap: null,
       joinedAt: now,
     });
