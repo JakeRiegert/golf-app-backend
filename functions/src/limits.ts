@@ -13,3 +13,5 @@ export type TournamentStatus = (typeof TOURNAMENT_STATUS)[keyof typeof TOURNAMEN
 // 'friends' is deliberately absent until the friends feature is designed (plan D7).
 export const VISIBILITY = { PRIVATE: 'private', PUBLIC: 'public' } as const;
 export type Visibility = (typeof VISIBILITY)[keyof typeof VISIBILITY];
+
+export const MAX_TOURNAMENT_NAME_LENGTH = 100;
