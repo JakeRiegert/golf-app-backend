@@ -4,6 +4,9 @@
 export const MAX_ROSTER_SIZE = 100;
 export const MAX_SPECTATORS = 100;
 
+export const MAX_DISPLAY_NAME_LENGTH = 50;
+export const MAX_AVATAR_URL_LENGTH = 500;
+
 export const TOURNAMENT_STATUS = { ACTIVE: 'active', SUSPENDED: 'suspended' } as const;
 export type TournamentStatus = (typeof TOURNAMENT_STATUS)[keyof typeof TOURNAMENT_STATUS];
 

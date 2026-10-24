@@ -7,8 +7,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --exclude test/rules.test.ts",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-golf-rules \"vitest run test/rules.test.ts\""
+    "test": "vitest run --exclude test/rules.test.ts --exclude test/players.test.ts",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-golf-rules \"vitest run test/rules.test.ts\"",
+    "test:emulated": "firebase emulators:exec --only firestore --project demo-golf-rules \"vitest run test/rules.test.ts test/players.test.ts\""
   },
   "dependencies": {
     "firebase-admin": "^14.5.0",
