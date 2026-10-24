@@ -1,0 +1,48 @@
+name: CI
+
+# Runs on every push to the gcp branch (and main, once gcp is merged) and on pull requests.
+# No cloud credentials and no deployment: everything runs against the local Firebase emulators,
+# so a push can never touch real data or cost anything. Deploys are a separate workflow.
+on:
+  push:
+    branches: [main, gcp]
+  pull_request:
+
+jobs:
+  functions:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: functions
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      # The Firestore emulator needs JDK 21+.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Emulator jars are large; cache them between runs.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ hashFiles('functions/package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check and build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Security rules and function tests (Firestore emulator)
+        run: npm run test:emulated

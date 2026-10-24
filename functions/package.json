@@ -8,8 +8,8 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run --exclude test/rules.test.ts --exclude test/players.test.ts",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-golf-rules \"vitest run test/rules.test.ts\"",
-    "test:emulated": "firebase emulators:exec --only firestore --project demo-golf-rules \"vitest run test/rules.test.ts test/players.test.ts\""
+    "test:rules": "firebase emulators:exec --config ../firebase.test.json --only firestore --project demo-golf-rules \"vitest run test/rules.test.ts\"",
+    "test:emulated": "firebase emulators:exec --config ../firebase.test.json --only firestore --project demo-golf-rules \"vitest run test/rules.test.ts test/players.test.ts\""
   },
   "dependencies": {
     "firebase-admin": "^14.5.0",
@@ -19,6 +19,7 @@
     "@firebase/rules-unit-testing": "^5.0.2",
     "@types/node": "^22.20.5",
     "firebase": "^12.19.0",
+    "firebase-tools": "^15.34.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.4"
   }
