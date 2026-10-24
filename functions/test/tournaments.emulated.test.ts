@@ -64,6 +64,7 @@ describe('createTournament', () => {
       visibility: 'private',
       status: 'active',
       wagerPotAmount: null,
+      startedAt: null,
     });
     expect(tournament?.createdAt).toBeDefined();
     expect(tournament).not.toHaveProperty('inviteCode'); // spectators can read this document

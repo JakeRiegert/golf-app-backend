@@ -64,8 +64,8 @@ describe('assignTournamentPlayer (admin)', () => {
       { tournamentId: tid, playerId: 'p1', teamId: red, handicap: 12.46 },
       usage,
     );
-    expect(result).toEqual({ playerId: 'p1', teamId: red, handicap: 12.5, teamAssignedBy: 'admin' });
-    expect(await entry(tid, 'p1')).toMatchObject({ teamId: red, handicap: 12.5, teamAssignedBy: 'admin' });
+    expect(result).toEqual({ playerId: 'p1', teamId: red, handicap: 12.5, teamAssignedBy: 'admin', handicapSetBy: 'admin' });
+    expect(await entry(tid, 'p1')).toMatchObject({ teamId: red, handicap: 12.5, teamAssignedBy: 'admin', handicapSetBy: 'admin' });
     expect((await entry(tid, 'p1'))?.updatedAt).toBeDefined();
     expect(usage.tournamentId).toBe(tid);
     expect(usage.docsWritten).toBe(1);
@@ -82,7 +82,7 @@ describe('assignTournamentPlayer (admin)', () => {
     const { tid, blue } = await setup();
     await choose(tid, 'p1', blue);
     const result = await admin(tid, 'p1', { handicap: 8 });
-    expect(result).toEqual({ playerId: 'p1', teamId: blue, handicap: 8, teamAssignedBy: 'player' });
+    expect(result).toEqual({ playerId: 'p1', teamId: blue, handicap: 8, teamAssignedBy: 'player', handicapSetBy: 'admin' });
   });
 
   it('clearing the team with null hands control back to the player', async () => {
@@ -158,8 +158,8 @@ describe('chooseTeam (player)', () => {
     await admin(tid, 'p1', { handicap: 15 });
     const usage = new UsageTracker();
     const result = await chooseTeam(db, 'p1', { tournamentId: tid, teamId: red }, usage);
-    expect(result).toEqual({ playerId: 'p1', teamId: red, handicap: 15, teamAssignedBy: 'player' });
-    expect(await entry(tid, 'p1')).toMatchObject({ teamId: red, handicap: 15, teamAssignedBy: 'player' });
+    expect(result).toEqual({ playerId: 'p1', teamId: red, handicap: 15, teamAssignedBy: 'player', handicapSetBy: 'admin' });
+    expect(await entry(tid, 'p1')).toMatchObject({ teamId: red, handicap: 15, teamAssignedBy: 'player', handicapSetBy: 'admin' });
     expect(usage.tournamentId).toBe(tid);
   });
 

@@ -13,6 +13,7 @@ export interface RosterAssignment {
   teamId: string | null;
   handicap: number | null;
   teamAssignedBy: AssignedBy;
+  handicapSetBy: AssignedBy;
 }
 
 export interface AssignPlayerInput {
@@ -34,7 +35,7 @@ function cleanTeamId(value: unknown): string | null {
   return requireId('teamId', value);
 }
 
-function cleanHandicap(value: unknown): number | null {
+export function cleanHandicap(value: unknown): number | null {
   if (value === null) return null;
   if (typeof value !== 'number' || !Number.isFinite(value) || value < MIN_HANDICAP || value > MAX_HANDICAP) {
     throw new HttpsError('invalid-argument', `handicap must be a number from ${MIN_HANDICAP} to ${MAX_HANDICAP}`);
@@ -47,7 +48,9 @@ function cleanHandicap(value: unknown): number | null {
 //   - a player may choose or change their own team until an admin has assigned them;
 //   - an admin (organizer or co-admin) can assign anyone at any time, which locks the player's
 //     choice; clearing the team (teamId: null) hands control back to the player.
-// Handicap is admin-only: it feeds the bets and scoring, so it is not self-reported.
+// Handicap works differently (see setMyHandicap in handicap.ts): before the tournament starts both
+// the player and the admins can set it; once an admin starts the tournament only admins can.
+// The roster handicap is the tournament-wide default; per-round overrides will live on Round.
 
 // Admin: set a roster member's team and/or handicap.
 export async function assignTournamentPlayer(
@@ -88,7 +91,10 @@ export async function assignTournamentPlayer(
       updates.teamId = teamId;
       updates.teamAssignedBy = teamId === null ? null : 'admin';
     }
-    if (handicap !== undefined) updates.handicap = handicap;
+    if (handicap !== undefined) {
+      updates.handicap = handicap;
+      updates.handicapSetBy = handicap === null ? null : 'admin';
+    }
     tx.update(memberRef, updates);
     usage.wrote();
 
@@ -99,6 +105,8 @@ export async function assignTournamentPlayer(
       handicap: handicap !== undefined ? handicap : (current.handicap ?? null),
       teamAssignedBy:
         teamId !== undefined ? (teamId === null ? null : 'admin') : ((current.teamAssignedBy as AssignedBy) ?? null),
+      handicapSetBy:
+        handicap !== undefined ? (handicap === null ? null : 'admin') : ((current.handicapSetBy as AssignedBy) ?? null),
     };
   });
 }
@@ -145,7 +153,13 @@ export async function chooseTeam(
     const teamAssignedBy: AssignedBy = teamId === null ? null : 'player';
     tx.update(memberRef, { teamId, teamAssignedBy, updatedAt: FieldValue.serverTimestamp() });
     usage.wrote();
-    return { playerId: uid, teamId, handicap: current.handicap ?? null, teamAssignedBy };
+    return {
+      playerId: uid,
+      teamId,
+      handicap: current.handicap ?? null,
+      teamAssignedBy,
+      handicapSetBy: (current.handicapSetBy as AssignedBy) ?? null,
+    };
   });
 }
 

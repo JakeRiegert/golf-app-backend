@@ -111,12 +111,14 @@ export async function createTournament(
       wagerPotAmount: null,
       visibility,
       status: TOURNAMENT_STATUS.ACTIVE,
+      startedAt: null,
       createdAt: now,
     });
     batch.create(tournamentRef.collection('players').doc(uid), {
       playerId: uid,
       teamId: null,
       teamAssignedBy: null,
+      handicapSetBy: null,
       handicap: null,
       joinedAt: now,
     });

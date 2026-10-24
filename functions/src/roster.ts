@@ -72,7 +72,7 @@ export async function joinTournament(
       throw new HttpsError('resource-exhausted', `This tournament is full (${maxRosterSize} players)`);
     }
 
-    tx.create(memberRef, { playerId: uid, teamId: null, teamAssignedBy: null, handicap: null, joinedAt: FieldValue.serverTimestamp() });
+    tx.create(memberRef, { playerId: uid, teamId: null, teamAssignedBy: null, handicap: null, handicapSetBy: null, joinedAt: FieldValue.serverTimestamp() });
     usage.wrote();
     return { ...result, alreadyMember: false };
   });
