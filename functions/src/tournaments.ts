@@ -39,7 +39,7 @@ export function generateInviteCode(): string {
   return code;
 }
 
-function cleanName(value: unknown): string {
+export function cleanName(value: unknown): string {
   if (typeof value !== 'string') {
     throw new HttpsError('invalid-argument', 'name is required');
   }
@@ -52,7 +52,7 @@ function cleanName(value: unknown): string {
 
 // Dates are calendar days ("2026-11-14"), not instants: a golf trip happens on a day wherever
 // it is played, so there is no time zone to get wrong.
-function cleanDate(field: string, value: unknown): string | null {
+export function cleanDate(field: string, value: unknown): string | null {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new HttpsError('invalid-argument', `${field} must be a date like 2026-11-14`);
@@ -64,7 +64,7 @@ function cleanDate(field: string, value: unknown): string | null {
   return value;
 }
 
-function cleanVisibility(value: unknown): Visibility {
+export function cleanVisibility(value: unknown): Visibility {
   if (value === undefined || value === null) return VISIBILITY.PRIVATE;
   if (value !== VISIBILITY.PRIVATE && value !== VISIBILITY.PUBLIC) {
     throw new HttpsError('invalid-argument', `visibility must be '${VISIBILITY.PRIVATE}' or '${VISIBILITY.PUBLIC}'`);

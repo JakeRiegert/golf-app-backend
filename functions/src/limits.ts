@@ -21,3 +21,6 @@ export const MAX_TEAM_NAME_LENGTH = 50;
 // Handicap index range accepted from an admin (WHS allows up to 54.0; plus handicaps are negative).
 export const MIN_HANDICAP = -10;
 export const MAX_HANDICAP = 54;
+
+// Largest team wager pot an admin can record (a sanity bound, not a payments limit).
+export const MAX_WAGER_POT_AMOUNT = 100000;
