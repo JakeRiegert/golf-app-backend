@@ -15,3 +15,5 @@ export const VISIBILITY = { PRIVATE: 'private', PUBLIC: 'public' } as const;
 export type Visibility = (typeof VISIBILITY)[keyof typeof VISIBILITY];
 
 export const MAX_TOURNAMENT_NAME_LENGTH = 100;
+export const MAX_TEAMS_PER_TOURNAMENT = 20;
+export const MAX_TEAM_NAME_LENGTH = 50;
