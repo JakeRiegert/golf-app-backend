@@ -177,11 +177,18 @@ describe('after the tournament starts', () => {
     expect((await entry(tid, 'p1'))?.handicap).toBe(14);
   });
 
-  it('only the handicap is locked: players can still pick their team', async () => {
+  it('teams lock on start too: players cannot pick one, admins still can', async () => {
     const tid = await setup();
     const { teams } = await createTeams(db, 'org1', { tournamentId: tid, teams: [{ name: 'Red' }] }, new UsageTracker());
     await start(tid);
-    const result = await chooseTeam(db, 'p1', { tournamentId: tid, teamId: teams[0].id }, new UsageTracker());
-    expect(result).toMatchObject({ teamId: teams[0].id, teamAssignedBy: 'player' });
+    const err = await rejection(chooseTeam(db, 'p1', { tournamentId: tid, teamId: teams[0].id }, new UsageTracker()));
+    expect(err.code).toBe('permission-denied');
+    const result = await assignTournamentPlayer(
+      db,
+      'org1',
+      { tournamentId: tid, playerId: 'p1', teamId: teams[0].id },
+      new UsageTracker(),
+    );
+    expect(result).toMatchObject({ teamId: teams[0].id, teamAssignedBy: 'admin' });
   });
 });

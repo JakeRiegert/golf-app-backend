@@ -45,11 +45,12 @@ export function cleanHandicap(value: unknown): number | null {
 
 // Two ways to put a player on a team, one record. Who set it is stored on the roster entry
 // (teamAssignedBy) so the rules between them are simple:
-//   - a player may choose or change their own team until an admin has assigned them;
+//   - a player may choose or change their own team until an admin has assigned them, and only
+//     before the tournament starts (team standings must not shift mid-event);
 //   - an admin (organizer or co-admin) can assign anyone at any time, which locks the player's
 //     choice; clearing the team (teamId: null) hands control back to the player.
-// Handicap works differently (see setMyHandicap in handicap.ts): before the tournament starts both
-// the player and the admins can set it; once an admin starts the tournament only admins can.
+// Handicap follows the same start rule (see setMyHandicap in handicap.ts): before the tournament
+// starts both the player and the admins can set it; once an admin starts it only admins can.
 // The roster handicap is the tournament-wide default; per-round overrides will live on Round.
 
 // Admin: set a roster member's team and/or handicap.
@@ -129,12 +130,18 @@ export async function chooseTeam(
   const memberRef = tournamentRef.collection('players').doc(uid);
 
   return db.runTransaction(async (tx) => {
-    await readActiveTournament(tx, tournamentRef, usage);
+    const tournament = await readActiveTournament(tx, tournamentRef, usage);
     const member = await tx.get(memberRef);
     usage.read();
     const current = member.data();
     if (!current) {
       throw new HttpsError('permission-denied', 'Join this tournament before choosing a team');
+    }
+    if (tournament.startedAt) {
+      throw new HttpsError(
+        'permission-denied',
+        'The tournament has started. Ask the organizer if your team needs changing.',
+      );
     }
     if (current.teamAssignedBy === 'admin') {
       throw new HttpsError(

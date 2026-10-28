@@ -4,8 +4,10 @@ import { HttpsError } from 'firebase-functions/v2/https';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { assignTournamentPlayer, chooseTeam } from '../src/assignment';
+import { startTournament } from '../src/lifecycle';
 import { joinTournament } from '../src/roster';
 import { createTeams } from '../src/teams';
+import { updateTournament } from '../src/tournamentAdmin';
 import { createTournament } from '../src/tournaments';
 import { UsageTracker } from '../src/usage';
 
@@ -185,6 +187,24 @@ describe('chooseTeam (player)', () => {
 
     await admin(tid, 'p1', { teamId: null });
     expect((await choose(tid, 'p1', blue)).teamId).toBe(blue);
+  });
+
+  it('is locked once the tournament has started, but admins can still assign and reopen unlocks it', async () => {
+    const { tid, red, blue } = await setup();
+    await choose(tid, 'p1', red);
+    await startTournament(db, 'org1', { tournamentId: tid }, new UsageTracker());
+
+    const err = await rejection(choose(tid, 'p1', blue));
+    expect(err.code).toBe('permission-denied');
+    expect((await rejection(choose(tid, 'p1', null))).code).toBe('permission-denied');
+    expect((await rejection(choose(tid, 'p2', blue))).code).toBe('permission-denied');
+    expect(await entry(tid, 'p1')).toMatchObject({ teamId: red, teamAssignedBy: 'player' });
+
+    expect((await admin(tid, 'p1', { teamId: blue })).teamId).toBe(blue);
+
+    await updateTournament(db, 'org1', { tournamentId: tid, started: false }, new UsageTracker());
+    await admin(tid, 'p1', { teamId: null });
+    expect((await choose(tid, 'p1', red)).teamId).toBe(red);
   });
 
   it('rejects someone who has not joined', async () => {
