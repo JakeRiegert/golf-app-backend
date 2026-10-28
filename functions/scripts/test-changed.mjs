@@ -35,6 +35,7 @@ if (info.all) {
   run('npm test');
   run('npm run test:emulated');
   run('npm run test:http');
+  run('npm run smoke:emulated');
 } else if (info.changed.length === 0 && info.httpTests.length === 0) {
   console.log('No source, test or rules changes: nothing to run.');
 } else {

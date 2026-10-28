@@ -56,7 +56,9 @@ if (Exists { gcloud iam service-accounts describe $deployer --project=$Project }
 }
 
 Step 'Project roles for github-deployer'
-foreach ($role in 'roles/firebase.admin', 'roles/cloudfunctions.admin', 'roles/run.admin', 'roles/serviceusage.serviceUsageConsumer') {
+# firebaseauth.admin and datastore.user are for the post-deploy smoke test, which creates and deletes
+# throwaway users and test data.
+foreach ($role in 'roles/firebase.admin', 'roles/cloudfunctions.admin', 'roles/run.admin', 'roles/serviceusage.serviceUsageConsumer', 'roles/firebaseauth.admin', 'roles/datastore.user') {
   gcloud projects add-iam-policy-binding $Project --member="serviceAccount:$deployer" --role=$role --condition=None --quiet | Out-Null
   Write-Host "granted $role"
 }
@@ -66,6 +68,10 @@ foreach ($target in $runtime, $build) {
   gcloud iam service-accounts add-iam-policy-binding $target --project=$Project --member="serviceAccount:$deployer" --role=roles/iam.serviceAccountUser --quiet | Out-Null
   Write-Host "may act as $target"
 }
+
+Step 'Let github-deployer sign custom tokens as itself (the smoke test signs throwaway users in)'
+gcloud iam service-accounts add-iam-policy-binding $deployer --project=$Project --member="serviceAccount:$deployer" --role=roles/iam.serviceAccountTokenCreator --quiet | Out-Null
+Write-Host "may sign tokens as $deployer"
 
 Step 'Let GitHub (this repository only) impersonate github-deployer'
 $principal = "principalSet://iam.googleapis.com/projects/$number/locations/global/workloadIdentityPools/github/attribute.repository_id/$RepoId"
@@ -78,3 +84,4 @@ Write-Host 'Variables, add these three REPOSITORY VARIABLES (not secrets):'
 Write-Host "  GCP_PROJECT_ID       $Project"
 Write-Host "  WIF_PROVIDER         projects/$number/locations/global/workloadIdentityPools/github/providers/github-actions"
 Write-Host "  WIF_SERVICE_ACCOUNT  $deployer"
+Write-Host '  FIREBASE_API_KEY     the web apiKey from golf-app-client/lib/firebase_options.dart (public, used by the smoke test)'

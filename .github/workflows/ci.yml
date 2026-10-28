@@ -62,6 +62,7 @@ jobs:
             npm test
             npm run test:emulated
             npm run test:http
+            npm run smoke:emulated
           elif [ "$EVENT" = "pull_request" ]; then
             npm run test:changed -- --base "$(git merge-base "origin/$BASE_REF" HEAD)"
           else

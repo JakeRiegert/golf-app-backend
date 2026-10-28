@@ -69,14 +69,23 @@ not installed):
 .\ops\setup-wif.ps1
 ```
 
-The script is idempotent and prints the three values to add in GitHub (repo Settings > Secrets and
-variables > Actions > **Variables**): `GCP_PROJECT_ID`, `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`. It
+The script is idempotent and prints the values to add in GitHub (repo Settings > Secrets and
+variables > Actions > **Variables**): `GCP_PROJECT_ID`, `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`, and
+`FIREBASE_API_KEY` (the public web `apiKey` from `golf-app-client/lib/firebase_options.dart`, used by
+the post-deploy smoke test; without it the smoke step is skipped with a warning). Re-run it after
+pulling a version that adds roles (the smoke test needs `firebaseauth.admin`, `datastore.user` and
+permission to sign tokens as the deployer). It
 creates the pool and provider (trusting only this repository by ID), the `github-deployer` service
 account, its roles, permission to act as only the runtime and build accounts, and GitHub's permission
 to impersonate it.
 
 Then run the "Deploy to Google Cloud" workflow from the Actions tab (scope `all` the first time). It
-deploys only what changed since the last deploy (the `deployed-gcp` tag). Not yet validated by a real
+deploys only what changed since the last deploy (the `deployed-gcp` tag), then runs the smoke test
+(`functions/scripts/smoke.mjs`) against the live URLs: three throwaway users, a tournament walked through
+create, join, teams, Start and the feed, then cleanup. A failed smoke test fails the run and leaves the
+tag where it was. `npm run smoke:emulated` runs the same script against the emulators (CI does this).
+Never run it against production by hand unless you mean to: it creates and deletes real users and data.
+Not yet validated by a real
 run: expect to adjust a role if a deploy reports a missing permission, and tighten the broad roles
 (`firebase.admin`, `run.admin`, `cloudfunctions.admin`) afterwards.
 

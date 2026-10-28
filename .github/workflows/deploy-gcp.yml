@@ -101,6 +101,23 @@ jobs:
           PROJECT: ${{ vars.GCP_PROJECT_ID }}
         run: npx --prefix functions firebase deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
 
+      # A short real walkthrough against the live URLs (functions/scripts/smoke.mjs): public access,
+      # sign-in checks, the runtime account's permissions, the rules and the composite indexes, as
+      # Google Cloud really enforces them. It creates throwaway users and data and deletes them. If
+      # it fails the deploy is marked failed and the deployed-gcp tag does not move.
+      - name: Smoke test the live deployment
+        if: steps.scope.outputs.targets != '' && vars.FIREBASE_API_KEY != ''
+        env:
+          SMOKE_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          SMOKE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          SMOKE_SERVICE_ACCOUNT: ${{ vars.WIF_SERVICE_ACCOUNT }}
+        run: node scripts/smoke.mjs
+
+      - name: Smoke test skipped
+        if: steps.scope.outputs.targets != '' && vars.FIREBASE_API_KEY == ''
+        run: |
+          echo "::warning::Smoke test skipped, add the FIREBASE_API_KEY repository variable (the web apiKey from firebase_options.dart)."
+
       - name: Record what is now live
         working-directory: .
         run: |
