@@ -9,7 +9,9 @@
     "build": "tsc",
     "test": "vitest run --exclude \"**/*.emulated.test.ts\"",
     "test:rules": "firebase emulators:exec --config ../firebase.test.json --only firestore --project demo-golf-rules \"vitest run rules.emulated\"",
-    "test:emulated": "firebase emulators:exec --config ../firebase.test.json --only firestore --project demo-golf-rules \"vitest run .emulated.\""
+    "test:emulated": "firebase emulators:exec --config ../firebase.test.json --only firestore --project demo-golf-rules \"vitest run .emulated.\"",
+    "test:changed": "node scripts/test-changed.mjs",
+    "affected": "node scripts/affected.mjs"
   },
   "dependencies": {
     "firebase-admin": "^14.5.0",
