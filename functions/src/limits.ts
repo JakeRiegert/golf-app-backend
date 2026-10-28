@@ -1,7 +1,9 @@
 // Named caps and allowed values, per the cost-control ladder (plan D9). Roster size is enforced
 // by joinTournament. The spectator cap is reserved: it only becomes meaningful once spectating
 // is a registered "follow" rather than open reading, so nothing enforces it yet.
-export const MAX_ROSTER_SIZE = 100;
+// A friendly limit for now (a 100-team member-guest is 200+ players); like the team cap it is meant
+// to become a billing tier post-MVP rather than a hard stop.
+export const MAX_ROSTER_SIZE = 400;
 export const MAX_SPECTATORS = 100;
 
 export const MAX_DISPLAY_NAME_LENGTH = 50;
