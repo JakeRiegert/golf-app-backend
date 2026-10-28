@@ -36,10 +36,14 @@ async function setup() {
   return { tid: t.id, code: t.inviteCode, red: teams[0].id, blue: teams[1].id };
 }
 
-// Every event so far, oldest first, without the join/team-creation noise from setup.
+// Every event so far, oldest first. Events written by one call share a server timestamp (one
+// transaction), so their relative order is not defined; ties are broken by type to keep this stable.
 async function feed(tid: string, after = 0) {
-  const snap = await db.collection('tournaments').doc(tid).collection('activity').orderBy('at').get();
-  return snap.docs.slice(after).map((d) => d.data());
+  const snap = await db.collection('tournaments').doc(tid).collection('activity').get();
+  return snap.docs
+    .map((d) => d.data())
+    .sort((a, b) => a.at.toMillis() - b.at.toMillis() || String(a.type).localeCompare(String(b.type)))
+    .slice(after);
 }
 const count = async (tid: string) => (await feed(tid)).length;
 
@@ -137,18 +141,19 @@ describe('activity feed events', () => {
     await startTournament(db, 'org1', { tournamentId: tid }, u());
     await assignTournamentPlayer(db, 'org1', { tournamentId: tid, playerId: 'p1', teamId: blue, handicap: 14 }, u());
 
+    // Within one call the two events tie on time, so they come back handicap first, then team.
     const events = await feed(tid, base);
     expect(events.map((e) => [e.type, e.level, e.targetPlayerId])).toEqual([
-      ['team_assigned', 'affected', 'p1'],
       ['handicap_changed', 'affected', 'p1'],
+      ['team_assigned', 'affected', 'p1'],
       ['tournament_started', 'all', null],
-      ['team_assigned', 'all', 'p1'],
       ['handicap_changed', 'all', 'p1'],
+      ['team_assigned', 'all', 'p1'],
     ]);
-    expect(events[0]).toMatchObject({ changes: { teamId: { from: null, to: red } }, data: { teamName: 'Red' } });
-    expect(events[1].changes).toEqual({ handicap: { from: null, to: 12 } });
-    expect(events[3]).toMatchObject({ changes: { teamId: { from: red, to: blue } }, data: { teamName: 'Blue' } });
-    expect(events[4].changes).toEqual({ handicap: { from: 12, to: 14 } });
+    expect(events[0].changes).toEqual({ handicap: { from: null, to: 12 } });
+    expect(events[1]).toMatchObject({ changes: { teamId: { from: null, to: red } }, data: { teamName: 'Red' } });
+    expect(events[3].changes).toEqual({ handicap: { from: 12, to: 14 } });
+    expect(events[4]).toMatchObject({ changes: { teamId: { from: red, to: blue } }, data: { teamName: 'Blue' } });
   });
 
   it('does not record a player choosing their own team before the start', async () => {
