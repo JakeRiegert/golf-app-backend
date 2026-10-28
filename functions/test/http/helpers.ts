@@ -4,6 +4,8 @@
 //
 // Where the suite points is configured by environment variables so the same tests can target
 // another environment later (a QA project, or a post-deploy smoke run) by changing the base URLs.
+import { randomUUID } from 'node:crypto';
+
 import { expect } from 'vitest';
 
 export const PROJECT = process.env.TEST_PROJECT ?? 'demo-golf-http';
@@ -17,11 +19,11 @@ export interface TestUser {
   token: string;
 }
 
-let counter = 0;
-
-// A fresh throwaway account, signed in. Emails are unique per call so tests never collide.
+// A fresh throwaway account, signed in. The email is random so tests never collide, including
+// test files running in parallel worker processes (a timestamp plus a per-process counter is not
+// unique across them).
 export async function signUp(label: string): Promise<TestUser> {
-  const email = `${label}-${Date.now()}-${counter++}@example.com`;
+  const email = `${label}-${randomUUID()}@example.com`;
   const res = await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-key`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
