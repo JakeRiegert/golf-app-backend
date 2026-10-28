@@ -1,23 +1,20 @@
 # Deploying to Google Cloud
 
-Nothing has been deployed yet: everything so far runs in the local emulators. This is the order to
-go live in. Steps 1 and 2 are yours (they need your Google account and card); the rest are commands.
+Status (2026-10-28): the project is live. Steps 1-3 are done and the functions are deployed by hand;
+step 4 (deploying from GitHub with no stored key) is next.
 
-Project: `golf-live-scoring-app-510200`. Region: `us-central1` (Firestore's region is permanent).
+Project: `golf-live-scoring-app-510200` (number `1007271383987`). Region: `us-central1` (Firestore's
+region is permanent).
 
-## 1. Upgrade to the Blaze plan (needed for Cloud Functions)
+## 1. Blaze plan (done)
 
-Firebase console > the project > Usage and billing > Modify plan > Blaze, and link a billing
-account. Rules and indexes deploy on the free plan, but Cloud Functions will not.
+Cloud Functions needs the Blaze plan. Upgraded by Jake on 2026-10-24.
 
-## 2. Set a budget alert before anything else
+## 2. Budget alert (still to do, Jake)
 
-Budgets alert; they do not cap spend. Console route (no tooling needed): Google Cloud console >
-Billing > Budgets and alerts > Create budget, scoped to this project, amount 10 USD, alert
-thresholds at 10%, 50% and 100% (that is roughly 1, 5 and 10 dollars), emailed to you.
-
-Command-line route, once `gcloud` is installed (`winget install Google.CloudSDK`, then
-`gcloud auth login`):
+Budgets alert; they do not cap spend. Console route: Google Cloud console > Billing > Budgets and
+alerts > Create budget, scoped to this project, amount 10 USD, alert thresholds at 10%, 50% and 100%,
+emailed to Jake. Command-line route (needs `gcloud auth login`):
 
 ```bash
 BILLING_ACCOUNT=XXXXXX-XXXXXX-XXXXXX   # gcloud billing accounts list
@@ -27,72 +24,63 @@ gcloud billing budgets create --billing-account="$BILLING_ACCOUNT" \
   --threshold-rule=percent=0.1 --threshold-rule=percent=0.5 --threshold-rule=percent=1.0
 ```
 
-## 3. First deploy, by hand
+## 3. Deploying by hand (what we have used so far)
 
-Run from the repo root. Deploy the data layer first, then the functions:
+From the repo root:
 
 ```bash
 npx --prefix functions firebase deploy --only firestore --project golf-live-scoring-app-510200
 npx --prefix functions firebase deploy --only functions --project golf-live-scoring-app-510200
-```
-
-The `functions` predeploy step builds the TypeScript first. Check afterwards:
-
-```bash
 npx --prefix functions firebase functions:list --project golf-live-scoring-app-510200
 ```
 
-Expect 11 functions in `us-central1`. Then point the client at the real project (build without
-`--dart-define=USE_EMULATORS=true`) and sign in; the profile screen should create your profile.
+Things the first deploys taught us (all invisible to the emulator tests):
+
+- **Build permission.** The first functions deploy failed with "missing permission on the build
+  service account". Fixed by granting `roles/cloudbuild.builds.builder` to the default Compute
+  account (`1007271383987-compute@developer.gserviceaccount.com`). That grant is still needed until
+  builds get their own account.
+- **Public invoker.** Each function is a Cloud Run service and must allow `allUsers` the role
+  `roles/run.invoker`, or the browser's CORS preflight is rejected before our code runs. The deploy
+  did not set it; Jake added it in the console. The functions still check sign-in themselves (an
+  anonymous call returns `401 UNAUTHENTICATED`). Redeploying an existing function keeps this
+  setting; a brand-new function may need it added again.
+- **Runtime identity.** Functions run as the dedicated account
+  `functions-runtime@golf-live-scoring-app-510200.iam.gserviceaccount.com` (roles
+  `roles/datastore.user` and `roles/logging.logWriter` only). The name comes from the
+  `RUNTIME_SERVICE_ACCOUNT` setting in `functions/.env`; use a `.env.<alias>` file for another
+  environment. The default Compute account has no Firestore permission on this project.
+- **Check after every deploy:** anonymous probes should still return 401, and a signed-in action
+  should work; read the production logs for errors.
 
 Rollback: rules and indexes keep a history in the console (Firestore > Rules > history); a function
-is removed with `firebase functions:delete <name>`.
+is removed with `firebase functions:delete <name>`, or redeploy the previous commit.
 
-## 4. Let GitHub deploy without a stored key (Workload Identity Federation)
+## 4. Deploy from GitHub with no stored key (Workload Identity Federation)
 
 Lesson carried over from the AWS setup: trust the numeric repository and owner IDs, never the
 repository name, because a name can be re-registered by someone else after a rename or deletion.
-IDs for this repo: owner `41297707`, `golf-app-backend` `1389607136`.
+IDs: owner `41297707`, `golf-app-backend` `1389607136`.
 
-```bash
-PROJECT=golf-live-scoring-app-510200
-PROJECT_NUMBER=$(gcloud projects describe $PROJECT --format='value(projectNumber)')
+One-time setup, from PowerShell after `gcloud auth login` (`winget install Google.CloudSDK` if it is
+not installed):
 
-gcloud iam workload-identity-pools create github --project=$PROJECT --location=global \
-  --display-name="GitHub Actions"
-
-gcloud iam workload-identity-pools providers create-oidc github-actions --project=$PROJECT \
-  --location=global --workload-identity-pool=github \
-  --issuer-uri=https://token.actions.githubusercontent.com \
-  --attribute-mapping="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id" \
-  --attribute-condition="assertion.repository_owner_id=='41297707' && assertion.repository_id=='1389607136'"
-
-gcloud iam service-accounts create github-deployer --project=$PROJECT \
-  --display-name="GitHub Actions deployer"
-
-# Broad to start (Firebase Admin covers functions, rules and indexes); tighten later.
-for ROLE in roles/firebase.admin roles/iam.serviceAccountUser; do
-  gcloud projects add-iam-policy-binding $PROJECT \
-    --member="serviceAccount:github-deployer@$PROJECT.iam.gserviceaccount.com" --role=$ROLE
-done
-
-gcloud iam service-accounts add-iam-policy-binding \
-  github-deployer@$PROJECT.iam.gserviceaccount.com --project=$PROJECT \
-  --role=roles/iam.workloadIdentityUser \
-  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository_id/1389607136"
-
-echo "WIF_PROVIDER=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-actions"
+```powershell
+.\ops\setup-wif.ps1
 ```
 
-Then in GitHub (backend repo) > Settings > Secrets and variables > Actions > Variables, add
-`GCP_PROJECT_ID`, `WIF_PROVIDER` and `WIF_SERVICE_ACCOUNT`
-(`github-deployer@golf-live-scoring-app-510200.iam.gserviceaccount.com`), and run the "Deploy to
-Google Cloud" workflow from the Actions tab.
+The script is idempotent and prints the three values to add in GitHub (repo Settings > Secrets and
+variables > Actions > **Variables**): `GCP_PROJECT_ID`, `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`. It
+creates the pool and provider (trusting only this repository by ID), the `github-deployer` service
+account, its roles, permission to act as only the runtime and build accounts, and GitHub's permission
+to impersonate it.
 
-Not yet verified end to end: these commands and the workflow were written but not run, because the
-account setup above comes first. Expect to adjust role names if a deploy reports a missing permission.
+Then run the "Deploy to Google Cloud" workflow from the Actions tab (scope `all` the first time). It
+deploys only what changed since the last deploy (the `deployed-gcp` tag). Not yet validated by a real
+run: expect to adjust a role if a deploy reports a missing permission, and tighten the broad roles
+(`firebase.admin`, `run.admin`, `cloudfunctions.admin`) afterwards.
 
 ## 5. After it is live
 
-Dashboards, alert policies and the usage-metering client (plan Phase 5 and the Observability section)
-are built against real traffic, so they come after the first deploy.
+Dashboards, alert policies and the usage-metering client (plan Phase 5 and the Observability section),
+a QA environment (go-live gate in the plan), and a post-deploy smoke test step in the workflow.
