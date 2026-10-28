@@ -4,6 +4,11 @@ name: Deploy to Google Cloud
 # so it cannot fail noisily on a fresh clone. Switch the trigger to `push: branches: [main]` at the
 # Phase 7 cutover, in the same change that removes the AWS deploy workflow.
 #
+# Deploys only what changed: functions/scripts/affected.mjs compares HEAD with the `deployed-gcp`
+# tag (the last commit this workflow deployed) and names the functions whose code is affected, plus
+# Firestore rules and indexes if those changed. Choose scope "all" to redeploy everything, which is
+# also what happens on the first run, when the tag does not exist yet. On success the tag moves.
+#
 # Authentication is Workload Identity Federation: GitHub proves who it is with a short-lived OIDC
 # token and Google hands back short-lived credentials. No service-account key is stored anywhere.
 # Setup steps and the one-time gcloud commands are in ops/DEPLOY.md.
@@ -13,11 +18,19 @@ name: Deploy to Google Cloud
 #   GCP_PROJECT_ID        golf-live-scoring-app-510200
 #   WIF_PROVIDER          projects/<number>/locations/global/workloadIdentityPools/github/providers/github-actions
 #   WIF_SERVICE_ACCOUNT   github-deployer@golf-live-scoring-app-510200.iam.gserviceaccount.com
+#
+# Not yet validated by a real run: the workflow cannot run until the variables exist.
 on:
   workflow_dispatch:
+    inputs:
+      scope:
+        description: 'What to deploy'
+        type: choice
+        options: [changed, all]
+        default: changed
 
 permissions:
-  contents: read
+  contents: write # moves the deployed-gcp tag after a successful deploy
   id-token: write # lets the job request the OIDC token Google exchanges for credentials
 
 concurrency:
@@ -33,6 +46,8 @@ jobs:
         working-directory: functions
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -51,11 +66,43 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Work out what to deploy
+        id: scope
+        env:
+          SCOPE: ${{ inputs.scope }}
+        run: |
+          git fetch --tags --force
+          BASE=0000000000000000000000000000000000000000 # unknown base = deploy everything
+          if [ "$SCOPE" != "all" ] && git rev-parse -q --verify refs/tags/deployed-gcp >/dev/null; then
+            BASE=$(git rev-parse deployed-gcp)
+          fi
+          node scripts/affected.mjs --base "$BASE" > "$RUNNER_TEMP/affected.json"
+          cat "$RUNNER_TEMP/affected.json"
+          TARGETS=$(node -e "
+            const a = require(process.env.RUNNER_TEMP + '/affected.json');
+            const t = a.functions.map((f) => 'functions:' + f);
+            if (a.rules || a.all) t.push('firestore');
+            console.log(t.join(','));
+          ")
+          echo "targets=$TARGETS" >> "$GITHUB_OUTPUT"
+          echo "Deploying: ${TARGETS:-nothing}" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: google-github-actions/auth@v2
+        if: steps.scope.outputs.targets != ''
         with:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
 
-      - name: Deploy functions, Firestore rules and indexes
+      - name: Deploy only what changed
+        if: steps.scope.outputs.targets != ''
         working-directory: .
-        run: npx --prefix functions firebase deploy --only functions,firestore --project "${{ vars.GCP_PROJECT_ID }}" --non-interactive
+        env:
+          TARGETS: ${{ steps.scope.outputs.targets }}
+          PROJECT: ${{ vars.GCP_PROJECT_ID }}
+        run: npx --prefix functions firebase deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
+
+      - name: Record what is now live
+        working-directory: .
+        run: |
+          git tag -f deployed-gcp HEAD
+          git push -f origin deployed-gcp

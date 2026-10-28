@@ -3,10 +3,18 @@ name: CI
 # Runs on every push to the gcp branch (and main, once gcp is merged) and on pull requests.
 # No cloud credentials and no deployment: everything runs against the local Firebase emulators,
 # so a push can never touch real data or cost anything. Deploys are a separate workflow.
+#
+# Test selection: on a branch push or pull request only the tests a change can affect run
+# (functions/scripts/affected.mjs reads the import graph). A change to something shared still runs
+# everything. main and the nightly schedule always run the full suite, so selection can save time
+# but never hide a failure for long.
 on:
   push:
     branches: [main, gcp]
   pull_request:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
 
 jobs:
   functions:
@@ -16,6 +24,8 @@ jobs:
         working-directory: functions
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the selection step diffs against earlier commits
 
       - uses: actions/setup-node@v4
         with:
@@ -41,8 +51,18 @@ jobs:
       - name: Type-check and build
         run: npm run build
 
-      - name: Unit tests
-        run: npm test
-
-      - name: Security rules and function tests (Firestore emulator)
-        run: npm run test:emulated
+      - name: Tests (only what the change can affect; everything on main, nightly and manual runs)
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$REF" = "refs/heads/main" ]; then
+            npm test
+            npm run test:emulated
+          elif [ "$EVENT" = "pull_request" ]; then
+            npm run test:changed -- --base "$(git merge-base "origin/$BASE_REF" HEAD)"
+          else
+            npm run test:changed -- --base "$BEFORE"
+          fi
