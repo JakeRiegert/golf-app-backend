@@ -1,6 +1,7 @@
 import { FieldValue, Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 
+import { diff, logActivity } from './activity';
 import { assertAdmin, requireId, requireTournamentId } from './authz';
 import { getDb } from './firestore';
 import { MAX_WAGER_POT_AMOUNT, Visibility } from './limits';
@@ -106,6 +107,34 @@ export async function updateTournament(
       usage.wrote();
     }
 
+    // Record what really changed. Start and Reopen are announced to everyone, and so is any edit
+    // once the tournament has started or one that changes who can see it; early setup edits stay
+    // between the admins.
+    const startedBefore = Boolean(current.startedAt);
+    if (started && !startedBefore) {
+      logActivity(tx, tournamentRef, usage, { type: 'tournament_started', actorId: uid, level: 'all' });
+    } else if (!started && startedBefore) {
+      logActivity(tx, tournamentRef, usage, { type: 'tournament_reopened', actorId: uid, level: 'all' });
+    }
+    const fieldChanges = diff(
+      {
+        name: current.name,
+        startDate: current.startDate ?? null,
+        endDate: current.endDate ?? null,
+        wagerPotAmount: current.wagerPotAmount ?? null,
+        visibility: current.visibility,
+      },
+      changes,
+    );
+    if (Object.keys(fieldChanges).length > 0) {
+      logActivity(tx, tournamentRef, usage, {
+        type: 'tournament_updated',
+        actorId: uid,
+        level: started || 'visibility' in fieldChanges ? 'all' : 'admins',
+        changes: fieldChanges,
+      });
+    }
+
     const merged = { ...current, ...changes };
     return {
       tournamentId,
@@ -153,6 +182,16 @@ export async function assignCoAdmin(
 
     tx.update(tournamentRef, { coAdminId: playerId });
     usage.wrote();
+    const previous = (tournament.coAdminId as string | null | undefined) ?? null;
+    if (previous !== playerId) {
+      logActivity(tx, tournamentRef, usage, {
+        type: 'co_admin_changed',
+        actorId: uid,
+        targetPlayerId: playerId ?? previous,
+        level: 'all',
+        changes: { coAdminId: { from: previous, to: playerId } },
+      });
+    }
     return { tournamentId, coAdminId: playerId };
   });
 }

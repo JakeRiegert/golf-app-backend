@@ -65,6 +65,12 @@ beforeEach(async () => {
       await setDoc(doc(db, 'tournaments', tid, 'players', 'mem'), { playerId: 'mem', teamId: null });
       await setDoc(doc(db, 'tournaments', tid, 'teams', 'tm1'), { name: 'Red' });
       await setDoc(doc(db, 'tournaments', tid, 'private', 'settings'), { inviteCode: 'ABC12345' });
+      // Activity feed: one event per level, and a player-level event about someone else.
+      const event = (level: string, targetPlayerId: string | null) => ({ type: 'x', actorId: 'org', level, targetPlayerId });
+      await setDoc(doc(db, 'tournaments', tid, 'activity', 'a-all'), event('all', null));
+      await setDoc(doc(db, 'tournaments', tid, 'activity', 'a-about-mem'), event('affected', 'mem'));
+      await setDoc(doc(db, 'tournaments', tid, 'activity', 'a-about-other'), event('affected', 'other'));
+      await setDoc(doc(db, 'tournaments', tid, 'activity', 'a-admins'), event('admins', 'mem'));
     }
 
     await setDoc(doc(db, 'players', 'alice'), { displayName: 'Alice' });
@@ -198,5 +204,59 @@ describe('my tournaments (collection-group query on roster entries)', () => {
     await assertFails(getDoc(doc(as('stranger'), 'tournaments', 't1', 'players', 'mem')));
     await assertSucceeds(getDoc(doc(as('mem'), 'tournaments', 't3', 'players', 'mem')));
     await assertFails(getDoc(doc(as('stranger'), 'players', 'alice', 'private', 'profile')));
+  });
+});
+
+describe('activity feed', () => {
+  const feed = (db: ReturnType<typeof as>, tid = 't1') => collection(db, 'tournaments', tid, 'activity');
+
+  it('admins read everything, including admins-only events, even the co-admin who is not on the roster', async () => {
+    for (const uid of ['org', 'co']) {
+      const snap = await assertSucceeds(getDocs(feed(as(uid))));
+      expect(snap.docs.map((d) => d.id).sort()).toEqual(['a-about-mem', 'a-about-other', 'a-admins', 'a-all']);
+    }
+  });
+
+  it('a member reads events for everyone and events about themselves, when they ask with the matching filters', async () => {
+    const db = as('mem');
+    const everyone = await assertSucceeds(getDocs(query(feed(db), where('level', '==', 'all'))));
+    expect(everyone.docs.map((d) => d.id)).toEqual(['a-all']);
+    const aboutMe = await assertSucceeds(
+      getDocs(query(feed(db), where('level', '==', 'affected'), where('targetPlayerId', '==', 'mem'))),
+    );
+    expect(aboutMe.docs.map((d) => d.id)).toEqual(['a-about-mem']);
+    await assertSucceeds(getDoc(doc(db, 'tournaments', 't1', 'activity', 'a-all')));
+    await assertSucceeds(getDoc(doc(db, 'tournaments', 't1', 'activity', 'a-about-mem')));
+  });
+
+  it('a member cannot read admins-only events, events about others, or list without filters', async () => {
+    const db = as('mem');
+    await assertFails(getDoc(doc(db, 'tournaments', 't1', 'activity', 'a-admins')));
+    await assertFails(getDoc(doc(db, 'tournaments', 't1', 'activity', 'a-about-other')));
+    await assertFails(getDocs(feed(db)));
+    await assertFails(getDocs(query(feed(db), where('level', '==', 'affected')))); // would include others
+    await assertFails(getDocs(query(feed(db), where('targetPlayerId', '==', 'mem')))); // would include admins-only
+    await assertFails(getDocs(query(feed(db), where('level', '==', 'admins'))));
+  });
+
+  it('strangers, spectators of a public tournament and signed-out users read nothing', async () => {
+    await assertFails(getDocs(query(feed(as('stranger')), where('level', '==', 'all'))));
+    await assertFails(getDocs(query(feed(as('stranger'), 't2'), where('level', '==', 'all')))); // public: still no feed
+    await assertFails(getDoc(doc(as('stranger'), 'tournaments', 't2', 'activity', 'a-all')));
+    await assertFails(getDocs(query(feed(anon()), where('level', '==', 'all'))));
+  });
+
+  it('members are blocked while the tournament is suspended; admins still read', async () => {
+    await assertFails(getDocs(query(feed(as('mem'), 't3'), where('level', '==', 'all'))));
+    await assertSucceeds(getDocs(feed(as('org'), 't3')));
+  });
+
+  it('nobody can write, edit or delete events from a client', async () => {
+    for (const uid of ['org', 'co', 'mem', 'stranger']) {
+      const db = as(uid);
+      await assertFails(setDoc(doc(db, 'tournaments', 't1', 'activity', 'new'), { level: 'all' }));
+      await assertFails(updateDoc(doc(db, 'tournaments', 't1', 'activity', 'a-all'), { level: 'admins' }));
+      await assertFails(deleteDoc(doc(db, 'tournaments', 't1', 'activity', 'a-all')));
+    }
   });
 });

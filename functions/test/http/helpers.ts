@@ -188,3 +188,48 @@ export async function createTeams(trip: Trip, names: string[]): Promise<Record<s
   });
   return Object.fromEntries(teams.map((t: { id: string; name: string }) => [t.name, t.id]));
 }
+
+// A filtered query on a subcollection of a document, as a client would run it. Security rules
+// allow or deny the whole query, so the filters must prove every possible result is readable.
+// (The emulator does not enforce composite indexes; the real project needs the ones in
+// firestore.indexes.json for the ordered feed queries.)
+export async function queryCollection(
+  user: TestUser | null,
+  parentDoc: string,
+  collectionId: string,
+  filters: [field: string, value: string][] = [],
+  orderByDesc?: string,
+): Promise<{ http: number; docs: { id: string; data: Record<string, any> }[] }> {
+  const where =
+    filters.length === 0
+      ? undefined
+      : filters.length === 1
+        ? { fieldFilter: { field: { fieldPath: filters[0][0] }, op: 'EQUAL', value: { stringValue: filters[0][1] } } }
+        : {
+            compositeFilter: {
+              op: 'AND',
+              filters: filters.map(([field, value]) => ({
+                fieldFilter: { field: { fieldPath: field }, op: 'EQUAL', value: { stringValue: value } },
+              })),
+            },
+          };
+  const res = await fetch(`${docsBase}/${parentDoc}:runQuery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(user) },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId }],
+        ...(where ? { where } : {}),
+        ...(orderByDesc ? { orderBy: [{ field: { fieldPath: orderByDesc }, direction: 'DESCENDING' }] } : {}),
+      },
+    }),
+  });
+  if (!res.ok) return { http: res.status, docs: [] };
+  const rows = (await res.json()) as { document?: { name: string; fields?: Record<string, any> } }[];
+  return {
+    http: res.status,
+    docs: rows
+      .filter((r) => r.document)
+      .map((r) => ({ id: r.document!.name.split('/').pop()!, data: fields(r.document!.fields ?? {}) })),
+  };
+}

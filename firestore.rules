@@ -99,6 +99,22 @@ service cloud.firestore {
         allow read: if canViewPrivate(tid);
         allow write: if false;
       }
+
+      // The activity feed (announcements and audit trail). Admins read all of it. A roster member
+      // of an active tournament reads events at level 'all', plus events at level 'affected' that
+      // are about them. Rules do not filter, they only allow or deny a whole query, so a member
+      // must ask with the matching filters: where level == 'all', and separately where
+      // level == 'affected' and targetPlayerId == their uid. Spectators never see the feed.
+      match /activity/{eventId} {
+        allow read: if signedIn() && (
+          isAdmin(tid)
+          || (isActive(tid) && isMember(tid)
+              && (resource.data.get('level', 'admins') == 'all'
+                  || (resource.data.get('level', 'admins') == 'affected'
+                      && resource.data.get('targetPlayerId', null) == me())))
+        );
+        allow write: if false;
+      }
     }
   }
 }

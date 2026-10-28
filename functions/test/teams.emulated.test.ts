@@ -57,7 +57,7 @@ describe('createTeams', () => {
     expect(docs.map((d) => d.data().name).sort()).toEqual(['Blue', 'Red']);
     expect(docs[0].data().createdAt).toBeDefined();
     expect(usage.tournamentId).toBe(t.id);
-    expect(usage.docsWritten).toBe(2);
+    expect(usage.docsWritten).toBe(3); // two teams, plus the activity event
   });
 
   it('lets the co-admin create teams', async () => {

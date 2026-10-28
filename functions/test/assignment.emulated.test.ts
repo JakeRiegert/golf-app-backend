@@ -70,7 +70,7 @@ describe('assignTournamentPlayer (admin)', () => {
     expect(await entry(tid, 'p1')).toMatchObject({ teamId: red, handicap: 12.5, teamAssignedBy: 'admin', handicapSetBy: 'admin' });
     expect((await entry(tid, 'p1'))?.updatedAt).toBeDefined();
     expect(usage.tournamentId).toBe(tid);
-    expect(usage.docsWritten).toBe(1);
+    expect(usage.docsWritten).toBe(3); // the roster entry, plus an activity event each for team and handicap
   });
 
   it('lets the co-admin assign too', async () => {

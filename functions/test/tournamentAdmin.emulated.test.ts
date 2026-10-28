@@ -81,7 +81,7 @@ describe('updateTournament', () => {
       status: 'active',
     });
     expect(usage.tournamentId).toBe(t.id);
-    expect(usage.docsWritten).toBe(1);
+    expect(usage.docsWritten).toBe(2); // the tournament update, plus the activity event
   });
 
   it('changes dates, and clears one with null', async () => {

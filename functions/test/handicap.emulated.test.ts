@@ -62,7 +62,7 @@ describe('startTournament', () => {
     const first = await startTournament(db, 'org1', { tournamentId: tid }, usage);
     expect(first).toEqual({ tournamentId: tid, alreadyStarted: false });
     expect(usage.tournamentId).toBe(tid);
-    expect(usage.docsWritten).toBe(1);
+    expect(usage.docsWritten).toBe(2); // startedAt, plus the activity event
     const stamp = (await tournamentDoc(tid))?.startedAt;
     expect(stamp).toBeDefined();
 

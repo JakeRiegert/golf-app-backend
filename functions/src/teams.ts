@@ -1,6 +1,7 @@
 import { FieldValue, Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 
+import { announce, diff, logActivity } from './activity';
 import { assertAdmin, requireTournamentId } from './authz';
 import { getDb } from './firestore';
 import { MAX_TEAM_NAME_LENGTH, MAX_TEAMS_PER_TOURNAMENT } from './limits';
@@ -83,7 +84,7 @@ export async function createTeams(
   const teamsRef = tournamentRef.collection('teams');
 
   return db.runTransaction(async (tx) => {
-    await assertAdmin(tx, tournamentRef, uid, usage);
+    const tournament = await assertAdmin(tx, tournamentRef, uid, usage);
     const existing = await tx.get(teamsRef);
     usage.read(existing.size);
     usage.teams(existing.size);
@@ -107,6 +108,12 @@ export async function createTeams(
     });
     usage.wrote(created.length);
     usage.teams(existing.size + created.length);
+    logActivity(tx, tournamentRef, usage, {
+      type: 'teams_created',
+      actorId: uid,
+      level: announce(Boolean(tournament.startedAt), 'admins'),
+      data: { count: created.length, names: created.slice(0, 20).map((team) => team.name) },
+    });
     return { teams: created };
   });
 }
@@ -135,7 +142,7 @@ export async function updateTeam(
   const teamRef = teamsRef.doc(input.teamId);
 
   return db.runTransaction(async (tx) => {
-    await assertAdmin(tx, tournamentRef, uid, usage);
+    const tournament = await assertAdmin(tx, tournamentRef, uid, usage);
     const teams = await tx.get(teamsRef);
     usage.read(teams.size);
     usage.teams(teams.size);
@@ -155,11 +162,25 @@ export async function updateTeam(
     if (color !== undefined) updates.color = color;
     tx.update(teamRef, updates);
     usage.wrote();
-    return {
+    const result = {
       id: teamRef.id,
       name: name ?? (current.data().name as string),
       color: color !== undefined ? color : ((current.data().color as string | null) ?? null),
     };
+    const changes = diff(
+      { name: current.data().name, color: current.data().color ?? null },
+      { name: result.name, color: result.color },
+    );
+    if (Object.keys(changes).length > 0) {
+      logActivity(tx, tournamentRef, usage, {
+        type: 'team_updated',
+        actorId: uid,
+        level: announce(Boolean(tournament.startedAt), 'admins'),
+        changes,
+        data: { teamId: teamRef.id },
+      });
+    }
+    return result;
   });
 }
 

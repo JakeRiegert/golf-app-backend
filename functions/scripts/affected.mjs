@@ -165,6 +165,13 @@ if (all || rules || httpHelpersChanged) {
     if (allHttp.includes(file)) httpTests.add(file);
   }
   if (functions.length > 0) httpTests.add('test/http/auth.http.test.ts');
+  // A cross-cutting module that is not a function itself (the activity feed) has its own HTTP test;
+  // run it whenever an affected function pulls that module in.
+  for (const file of allHttp) {
+    const mod = file.replace(/^test\/http\//, '').replace(/\.http\.test\.ts$/, '');
+    if (mod === 'auth' || functionModules.has(mod) || !modules.includes(mod)) continue;
+    if (functions.some((name) => closure(functionModule[name]).has(mod))) httpTests.add(file);
+  }
 }
 
 console.log(

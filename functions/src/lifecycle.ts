@@ -1,5 +1,6 @@
 import { FieldValue, Firestore } from 'firebase-admin/firestore';
 
+import { logActivity } from './activity';
 import { assertAdmin, requireTournamentId } from './authz';
 import { getDb } from './firestore';
 import { callable, UsageTracker } from './usage';
@@ -35,6 +36,7 @@ export async function startTournament(
     }
     tx.update(tournamentRef, { startedAt: FieldValue.serverTimestamp() });
     usage.wrote();
+    logActivity(tx, tournamentRef, usage, { type: 'tournament_started', actorId: uid, level: 'all' });
     return { tournamentId, alreadyStarted: false };
   });
 }

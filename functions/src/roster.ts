@@ -1,6 +1,7 @@
 import { FieldValue, Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 
+import { logActivity } from './activity';
 import { getDb } from './firestore';
 import { MAX_ROSTER_SIZE, TOURNAMENT_STATUS } from './limits';
 import { callable, UsageTracker } from './usage';
@@ -76,6 +77,12 @@ export async function joinTournament(
     tx.create(memberRef, { playerId: uid, teamId: null, teamAssignedBy: null, handicap: null, handicapSetBy: null, joinedAt: FieldValue.serverTimestamp() });
     usage.wrote();
     usage.roster(count.data().count + 1);
+    logActivity(tx, tournamentRef, usage, {
+      type: 'player_joined',
+      actorId: uid,
+      targetPlayerId: uid,
+      level: 'admins',
+    });
     return { ...result, alreadyMember: false };
   });
 }

@@ -1,6 +1,7 @@
 import { FieldValue, Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 
+import { announce, logActivity } from './activity';
 import { assertAdmin, readActiveTournament, requireId, requireTournamentId } from './authz';
 import { getDb } from './firestore';
 import { MAX_HANDICAP, MIN_HANDICAP } from './limits';
@@ -73,18 +74,20 @@ export async function assignTournamentPlayer(
   const memberRef = tournamentRef.collection('players').doc(playerId);
 
   return db.runTransaction(async (tx) => {
-    await assertAdmin(tx, tournamentRef, uid, usage);
+    const tournament = await assertAdmin(tx, tournamentRef, uid, usage);
     const member = await tx.get(memberRef);
     usage.read();
     if (!member.exists) {
       throw new HttpsError('not-found', 'That player is not on this tournament\'s roster');
     }
+    let teamName: string | null = null;
     if (typeof teamId === 'string') {
       const team = await tx.get(tournamentRef.collection('teams').doc(teamId));
       usage.read();
       if (!team.exists) {
         throw new HttpsError('not-found', 'Team not found in this tournament');
       }
+      teamName = (team.data()?.name as string | undefined) ?? null;
     }
 
     const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
@@ -100,6 +103,28 @@ export async function assignTournamentPlayer(
     usage.wrote();
 
     const current = member.data() ?? {};
+    // Only real changes leave a record. Before the start these concern the player and the admins;
+    // after it, everyone is told.
+    const level = announce(Boolean(tournament.startedAt), 'affected');
+    if (teamId !== undefined && (current.teamId ?? null) !== teamId) {
+      logActivity(tx, tournamentRef, usage, {
+        type: 'team_assigned',
+        actorId: uid,
+        targetPlayerId: playerId,
+        level,
+        changes: { teamId: { from: current.teamId ?? null, to: teamId } },
+        data: teamName ? { teamName } : {},
+      });
+    }
+    if (handicap !== undefined && (current.handicap ?? null) !== handicap) {
+      logActivity(tx, tournamentRef, usage, {
+        type: 'handicap_changed',
+        actorId: uid,
+        targetPlayerId: playerId,
+        level,
+        changes: { handicap: { from: current.handicap ?? null, to: handicap } },
+      });
+    }
     return {
       playerId,
       teamId: teamId !== undefined ? teamId : (current.teamId ?? null),

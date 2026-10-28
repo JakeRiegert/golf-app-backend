@@ -49,7 +49,7 @@ describe('joinTournament', () => {
     expect(entry).toMatchObject({ playerId: 'p1', teamId: null, handicap: null });
     expect(entry?.joinedAt).toBeDefined();
     expect(usage.tournamentId).toBe(t.id);
-    expect(usage.docsWritten).toBe(1);
+    expect(usage.docsWritten).toBe(2); // the roster entry, plus the activity event
     expect(usage.rosterSize).toBe(2); // the organizer plus the new player, for the usage log
   });
 
