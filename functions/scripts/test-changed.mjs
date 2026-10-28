@@ -34,12 +34,22 @@ console.log(
 if (info.all) {
   run('npm test');
   run('npm run test:emulated');
-} else if (info.changed.length === 0) {
+  run('npm run test:http');
+} else if (info.changed.length === 0 && info.httpTests.length === 0) {
   console.log('No source, test or rules changes: nothing to run.');
 } else {
-  const files = info.changed.join(' ');
-  run(
-    'npx firebase emulators:exec --config ../firebase.test.json --only firestore --project demo-golf-rules ' +
-      `"vitest related --run --passWithNoTests ${files}"`,
-  );
+  if (info.changed.length > 0) {
+    run(
+      'npx firebase emulators:exec --config ../firebase.test.json --only firestore --project demo-golf-rules ' +
+        `"vitest related --run --passWithNoTests ${info.changed.join(' ')}"`,
+    );
+  }
+  if (info.httpTests.length > 0) {
+    // The Functions emulator runs the compiled code in lib/, so build first.
+    run('npm run build');
+    run(
+      'npx firebase emulators:exec --config ../firebase.test.json --only auth,functions,firestore --project demo-golf-http ' +
+        `"vitest run ${info.httpTests.join(' ')}"`,
+    );
+  }
 }

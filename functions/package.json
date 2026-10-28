@@ -7,7 +7,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --exclude \"**/*.emulated.test.ts\"",
+    "test": "vitest run --exclude \"**/*.emulated.test.ts\" --exclude \"**/*.http.test.ts\"",
+    "test:http": "npm run build && firebase emulators:exec --config ../firebase.test.json --only auth,functions,firestore --project demo-golf-http \"vitest run .http.\"",
     "test:rules": "firebase emulators:exec --config ../firebase.test.json --only firestore --project demo-golf-rules \"vitest run rules.emulated\"",
     "test:emulated": "firebase emulators:exec --config ../firebase.test.json --only firestore --project demo-golf-rules \"vitest run .emulated.\"",
     "test:changed": "node scripts/test-changed.mjs",

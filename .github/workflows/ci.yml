@@ -61,6 +61,7 @@ jobs:
           if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$REF" = "refs/heads/main" ]; then
             npm test
             npm run test:emulated
+            npm run test:http
           elif [ "$EVENT" = "pull_request" ]; then
             npm run test:changed -- --base "$(git merge-base "origin/$BASE_REF" HEAD)"
           else

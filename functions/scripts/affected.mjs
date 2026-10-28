@@ -13,6 +13,7 @@
 //   all        true when something shared changed (or the base is unknown): run and deploy everything
 //   functions  the deployable function names whose code is affected (every function when all)
 //   changed    changed source and test files to hand to `vitest related`
+//   httpTests  the HTTP-level test files to run (they need the Auth and Functions emulators)
 //   rules      true when firestore.rules or the indexes changed (rules tests, `deploy --only firestore`)
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -88,6 +89,8 @@ const rel = (f) => f.replaceAll('\\', '/');
 
 const sourceChanged = new Set();
 const testFiles = [];
+const httpFiles = [];
+let httpHelpersChanged = false;
 let rules = false;
 let all = false;
 const reasons = [];
@@ -107,8 +110,14 @@ for (const file of files.map(rel)) {
     } else {
       sourceChanged.add(mod);
     }
+  } else if (file === 'functions/test/http/helpers.ts') {
+    httpHelpersChanged = true;
   } else if (/^functions\/test\/.+\.test\.ts$/.test(file)) {
-    if (existsSync(join(repoRoot, file))) testFiles.push(file.replace(/^functions\//, ''));
+    if (existsSync(join(repoRoot, file))) {
+      const testFile = file.replace(/^functions\//, '');
+      // HTTP-level tests need the Auth and Functions emulators too, so they run in their own session.
+      (testFile.includes('.http.') ? httpFiles : testFiles).push(testFile);
+    }
   } else if (file === 'firestore.rules' || file === 'firestore.indexes.json') {
     rules = true;
     reasons.push(`${file} changed`);
@@ -137,4 +146,31 @@ const changed = [
   ...(rules && !all ? ['test/rules.emulated.test.ts'] : []),
 ];
 
-console.log(JSON.stringify({ all, functions, changed, rules, reason: [...new Set(reasons)] }, null, 2));
+// HTTP-level tests call the deployed-style functions over HTTP, so they never import src/ and
+// `vitest related` cannot find them. Select them by name instead: test/http/<module>.http.test.ts
+// belongs to src/<module>.ts. A module's functions pull in their own file; the sign-in contract
+// (auth.http.test.ts) runs whenever any function is affected. A rules or helper change runs them all.
+const httpDir = join(functionsDir, 'test', 'http');
+const allHttp = readdirSync(httpDir)
+  .filter((f) => f.endsWith('.http.test.ts'))
+  .map((f) => `test/http/${f}`);
+const httpTests = new Set(httpFiles);
+if (all || rules || httpHelpersChanged) {
+  allHttp.forEach((f) => httpTests.add(f));
+} else {
+  const testModuleFor = { lifecycle: 'handicap' }; // Start is exercised in handicap.http.test.ts
+  for (const name of functions) {
+    const mod = functionModule[name];
+    const file = `test/http/${testModuleFor[mod] ?? mod}.http.test.ts`;
+    if (allHttp.includes(file)) httpTests.add(file);
+  }
+  if (functions.length > 0) httpTests.add('test/http/auth.http.test.ts');
+}
+
+console.log(
+  JSON.stringify(
+    { all, functions, changed, httpTests: [...httpTests].sort(), rules, reason: [...new Set(reasons)] },
+    null,
+    2,
+  ),
+);
