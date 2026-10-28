@@ -112,17 +112,37 @@ describe('createTeams', () => {
     const t = await newTournament();
     const names = (from: number, to: number) =>
       Array.from({ length: to - from }, (_, i) => ({ name: `Team ${from + i}` }));
-    await createTeams(db, 'org1', { tournamentId: t.id, teams: names(0, 20) }, new UsageTracker());
+    const first = new UsageTracker();
+    await createTeams(db, 'org1', { tournamentId: t.id, teams: names(0, 100) }, first);
+    expect(first.teamCount).toBe(100);
+    const usage = new UsageTracker();
     const err = await rejection(
-      createTeams(db, 'org1', { tournamentId: t.id, teams: [{ name: 'One too many' }] }, new UsageTracker()),
+      createTeams(db, 'org1', { tournamentId: t.id, teams: [{ name: 'One too many' }] }, usage),
     );
     expect(err.code).toBe('resource-exhausted');
-    expect(await teamDocs(t.id)).toHaveLength(20);
+    expect(usage.teamCount).toBe(100); // measured even though the call was refused
+    expect(await teamDocs(t.id)).toHaveLength(100);
 
     const tooMany = await rejection(
-      createTeams(db, 'org1', { tournamentId: t.id, teams: names(100, 121) }, new UsageTracker()),
+      createTeams(db, 'org1', { tournamentId: t.id, teams: names(200, 301) }, new UsageTracker()),
     );
     expect(tooMany.code).toBe('invalid-argument');
+  });
+
+  it('reports the tournament team count for the usage log on create and update', async () => {
+    const t = await newTournament();
+    const created = new UsageTracker();
+    const { teams } = await createTeams(
+      db,
+      'org1',
+      { tournamentId: t.id, teams: [{ name: 'Red' }, { name: 'Blue' }] },
+      created,
+    );
+    expect(created.teamCount).toBe(2);
+
+    const updated = new UsageTracker();
+    await updateTeam(db, 'org1', { tournamentId: t.id, teamId: teams[0].id, name: 'Crimson' }, updated);
+    expect(updated.teamCount).toBe(2);
   });
 
   it.each([

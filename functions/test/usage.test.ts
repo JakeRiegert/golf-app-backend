@@ -58,7 +58,33 @@ describe('runWithUsage', () => {
   it('logs null for tournamentId and uid when none apply', async () => {
     const { log, calls } = fakeLogger();
     await runWithUsage('upsertPlayerProfile', undefined, async () => 1, log, clock());
-    expect(calls[0].data).toMatchObject({ uid: null, tournamentId: null, docsRead: 0, docsWritten: 0 });
+    expect(calls[0].data).toMatchObject({
+      uid: null,
+      tournamentId: null,
+      docsRead: 0,
+      docsWritten: 0,
+      teamCount: null,
+      rosterSize: null,
+    });
+  });
+
+  it('logs the tournament size when the handler measured it, even on a refused call', async () => {
+    const { log, calls } = fakeLogger();
+    await runWithUsage('createTeams', 'user-5', async (usage) => {
+      usage.forTournament('t-7');
+      usage.teams(40);
+      usage.roster(160);
+      return 1;
+    }, log, clock());
+    expect(calls[0].data).toMatchObject({ teamCount: 40, rosterSize: 160 });
+
+    await expect(
+      runWithUsage('createTeams', 'user-5', async (usage) => {
+        usage.teams(100);
+        throw new HttpsError('resource-exhausted', 'full');
+      }, log, clock()),
+    ).rejects.toThrow();
+    expect(calls[1].data).toMatchObject({ outcome: 'error', errorCode: 'resource-exhausted', teamCount: 100 });
   });
 
   it('logs caller mistakes as warnings and rethrows them', async () => {

@@ -50,6 +50,7 @@ describe('joinTournament', () => {
     expect(entry?.joinedAt).toBeDefined();
     expect(usage.tournamentId).toBe(t.id);
     expect(usage.docsWritten).toBe(1);
+    expect(usage.rosterSize).toBe(2); // the organizer plus the new player, for the usage log
   });
 
   it('is idempotent: joining twice does not duplicate or move joinedAt', async () => {

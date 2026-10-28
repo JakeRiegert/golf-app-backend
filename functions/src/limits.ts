@@ -15,7 +15,11 @@ export const VISIBILITY = { PRIVATE: 'private', PUBLIC: 'public' } as const;
 export type Visibility = (typeof VISIBILITY)[keyof typeof VISIBILITY];
 
 export const MAX_TOURNAMENT_NAME_LENGTH = 100;
-export const MAX_TEAMS_PER_TOURNAMENT = 20;
+// Real outings run 40 teams on one course and around 100 for a member-guest on two. This is a
+// safety cap, not the product's final answer: post-MVP, very large tournaments are meant to be
+// billed for (see the cost-control ladder, plan D9) rather than turned away. Team counts are
+// logged on every team and join call (usage `teamCount`, `rosterSize`) so we can see real sizes.
+export const MAX_TEAMS_PER_TOURNAMENT = 100;
 export const MAX_TEAM_NAME_LENGTH = 50;
 
 // Handicap index range accepted from an admin (WHS allows up to 54.0; plus handicaps are negative).

@@ -86,6 +86,7 @@ export async function createTeams(
     await assertAdmin(tx, tournamentRef, uid, usage);
     const existing = await tx.get(teamsRef);
     usage.read(existing.size);
+    usage.teams(existing.size);
     if (existing.size + wanted.length > MAX_TEAMS_PER_TOURNAMENT) {
       throw new HttpsError(
         'resource-exhausted',
@@ -105,6 +106,7 @@ export async function createTeams(
       return { id: ref.id, ...team };
     });
     usage.wrote(created.length);
+    usage.teams(existing.size + created.length);
     return { teams: created };
   });
 }
@@ -136,6 +138,7 @@ export async function updateTeam(
     await assertAdmin(tx, tournamentRef, uid, usage);
     const teams = await tx.get(teamsRef);
     usage.read(teams.size);
+    usage.teams(teams.size);
     const current = teams.docs.find((doc) => doc.id === teamRef.id);
     if (!current) {
       throw new HttpsError('not-found', 'Team not found in this tournament');

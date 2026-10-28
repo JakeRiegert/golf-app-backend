@@ -7,15 +7,25 @@ import { CallableRequest, HttpsError, onCall } from 'firebase-functions/v2/https
 // Log the uid, never email or other PII.
 //
 //   event, operation, uid, tournamentId, docsRead, docsWritten, durationMs, outcome,
-//   errorCode (only on failure)
+//   teamCount, rosterSize (the tournament's size as of this call; null when the call did not
+//   measure it), errorCode (only on failure)
 
 export class UsageTracker {
   tournamentId?: string;
   docsRead = 0;
   docsWritten = 0;
+  teamCount?: number;
+  rosterSize?: number;
 
   forTournament(id: string): void {
     this.tournamentId = id;
+  }
+  // Record how big the tournament is, so size shows up next to cost in the logs.
+  teams(count: number): void {
+    this.teamCount = count;
+  }
+  roster(count: number): void {
+    this.rosterSize = count;
   }
   read(count = 1): void {
     this.docsRead += count;
@@ -60,6 +70,8 @@ export async function runWithUsage<T>(
     tournamentId: usage.tournamentId ?? null,
     docsRead: usage.docsRead,
     docsWritten: usage.docsWritten,
+    teamCount: usage.teamCount ?? null,
+    rosterSize: usage.rosterSize ?? null,
     durationMs: now() - started,
   });
 

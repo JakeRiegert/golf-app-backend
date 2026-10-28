@@ -68,12 +68,14 @@ export async function joinTournament(
 
     const count = await tx.get(rosterRef.count());
     usage.read();
+    usage.roster(count.data().count);
     if (count.data().count >= maxRosterSize) {
       throw new HttpsError('resource-exhausted', `This tournament is full (${maxRosterSize} players)`);
     }
 
     tx.create(memberRef, { playerId: uid, teamId: null, teamAssignedBy: null, handicap: null, handicapSetBy: null, joinedAt: FieldValue.serverTimestamp() });
     usage.wrote();
+    usage.roster(count.data().count + 1);
     return { ...result, alreadyMember: false };
   });
 }
