@@ -162,6 +162,9 @@ export async function chooseTeam(
     if (!current) {
       throw new HttpsError('permission-denied', 'Join this tournament before choosing a team');
     }
+    if (current.withdrawn === true) {
+      throw new HttpsError('permission-denied', 'You have been removed from this tournament');
+    }
     if (tournament.startedAt) {
       throw new HttpsError(
         'permission-denied',

@@ -184,6 +184,75 @@ export async function updateTeam(
   });
 }
 
+export interface DeleteTeamInput {
+  tournamentId?: string;
+  teamId?: string;
+}
+
+export interface DeletedTeam {
+  tournamentId: string;
+  teamId: string;
+  // How many players were on the team and went back to "No team".
+  unassigned: number;
+}
+
+// Admin: delete a team made by mistake. Before the tournament starts any team can go, and the players
+// on it simply go back to "No team" (their team choice is handed back, as when an admin clears it). After
+// the start a team that still has players cannot be deleted: standings depend on who is on which team, so
+// the admin has to move them off first (assignTournamentPlayer), which is announced like any other change.
+export async function deleteTeam(
+  db: Firestore,
+  uid: string,
+  input: DeleteTeamInput,
+  usage: UsageTracker,
+): Promise<DeletedTeam> {
+  const tournamentId = requireTournamentId(input.tournamentId);
+  if (typeof input.teamId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(input.teamId)) {
+    throw new HttpsError('invalid-argument', 'teamId is required');
+  }
+  const teamId = input.teamId;
+
+  usage.forTournament(tournamentId);
+  const tournamentRef = db.collection('tournaments').doc(tournamentId);
+  const teamsRef = tournamentRef.collection('teams');
+
+  return db.runTransaction(async (tx) => {
+    const tournament = await assertAdmin(tx, tournamentRef, uid, usage);
+    const teams = await tx.get(teamsRef);
+    usage.read(teams.size);
+    usage.teams(teams.size);
+    const team = teams.docs.find((doc) => doc.id === teamId);
+    if (!team) {
+      throw new HttpsError('not-found', 'Team not found in this tournament');
+    }
+
+    const members = await tx.get(tournamentRef.collection('players').where('teamId', '==', teamId));
+    usage.read(members.size);
+    const started = Boolean(tournament.startedAt);
+    if (started && members.size > 0) {
+      throw new HttpsError(
+        'failed-precondition',
+        `The tournament has started. Move the ${members.size} player(s) off this team first.`,
+      );
+    }
+
+    for (const member of members.docs) {
+      tx.update(member.ref, { teamId: null, teamAssignedBy: null, updatedAt: FieldValue.serverTimestamp() });
+    }
+    usage.wrote(members.size);
+    tx.delete(team.ref);
+    usage.wrote();
+    usage.teams(teams.size - 1);
+    logActivity(tx, tournamentRef, usage, {
+      type: 'team_deleted',
+      actorId: uid,
+      level: announce(started, 'admins'),
+      data: { teamId, name: (team.data().name as string) ?? null, unassigned: members.size },
+    });
+    return { tournamentId, teamId, unassigned: members.size };
+  });
+}
+
 export const createTeamsCallable = callable<CreateTeamsInput, { teams: Team[] }>(
   'createTeams',
   async (request, usage, uid) => createTeams(getDb(), uid, request.data ?? {}, usage),
@@ -192,4 +261,9 @@ export const createTeamsCallable = callable<CreateTeamsInput, { teams: Team[] }>
 export const updateTeamCallable = callable<UpdateTeamInput, Team>(
   'updateTeam',
   async (request, usage, uid) => updateTeam(getDb(), uid, request.data ?? {}, usage),
+);
+
+export const deleteTeamCallable = callable<DeleteTeamInput, DeletedTeam>(
+  'deleteTeam',
+  async (request, usage, uid) => deleteTeam(getDb(), uid, request.data ?? {}, usage),
 );

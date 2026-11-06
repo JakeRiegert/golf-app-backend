@@ -30,6 +30,8 @@ export const ACTIVITY_TYPES = [
   'handicap_changed',
   'co_admin_changed',
   'player_joined',
+  'player_removed',
+  'team_deleted',
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 

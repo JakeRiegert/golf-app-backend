@@ -45,6 +45,9 @@ export async function setMyHandicap(
     if (!member.exists) {
       throw new HttpsError('permission-denied', 'Join this tournament before setting a handicap');
     }
+    if (member.data()?.withdrawn === true) {
+      throw new HttpsError('permission-denied', 'You have been removed from this tournament');
+    }
     if (tournament.startedAt) {
       throw new HttpsError(
         'permission-denied',

@@ -158,17 +158,21 @@ const httpTests = new Set(httpFiles);
 if (all || rules || httpHelpersChanged) {
   allHttp.forEach((f) => httpTests.add(f));
 } else {
+  // A module can have several HTTP test files: test/http/<module>.http.test.ts and
+  // test/http/<module>.<topic>.http.test.ts (for example roster.removal.http.test.ts).
   const testModuleFor = { lifecycle: 'handicap' }; // Start is exercised in handicap.http.test.ts
+  const moduleOf = (file) => file.replace(/^test\/http\//, '').split('.')[0];
   for (const name of functions) {
     const mod = functionModule[name];
-    const file = `test/http/${testModuleFor[mod] ?? mod}.http.test.ts`;
-    if (allHttp.includes(file)) httpTests.add(file);
+    for (const file of allHttp) {
+      if (moduleOf(file) === (testModuleFor[mod] ?? mod)) httpTests.add(file);
+    }
   }
   if (functions.length > 0) httpTests.add('test/http/auth.http.test.ts');
   // A cross-cutting module that is not a function itself (the activity feed) has its own HTTP test;
   // run it whenever an affected function pulls that module in.
   for (const file of allHttp) {
-    const mod = file.replace(/^test\/http\//, '').replace(/\.http\.test\.ts$/, '');
+    const mod = moduleOf(file);
     if (mod === 'auth' || functionModules.has(mod) || !modules.includes(mod)) continue;
     if (functions.some((name) => closure(functionModule[name]).has(mod))) httpTests.add(file);
   }
