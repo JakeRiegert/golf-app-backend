@@ -24,18 +24,18 @@ An AI browser agent ran 38 scenarios from sections A to H against the live app o
 errors. The failures were all in the client:
 
 - **C2:** typing `abc` into the Edit dialog's wager pot silently cleared the pot (`num.tryParse` gave
-  null, which was sent as "no pot"). **Fixed:** it now shows "Wager pot must be a number from 0 to
-  100000" and sends nothing.
+  null, which was sent as "no pot"). **Fixed & Re-verified:** it now shows "Wager pot must be a number from 0 to
+  100000", keeps the dialog open, and sends nothing.
 - **E3:** typing `abc` into a handicap box silently cleared the handicap, for players and admins.
-  **Fixed:** it now shows "Handicap must be a number from -10 to 54" and sends nothing. An empty box
+  **Fixed & Re-verified:** it now shows "Handicap must be a number from -10 to 54" and sends nothing. An empty box
   still clears.
 - **F5:** double-clicking a dialog button popped the page underneath and left a blank white screen
-  (Start/Reopen confirm, Edit, Rename). **Fixed:** dialogs close through `popDialog`, which ignores a
+  (Start/Reopen confirm, Edit, Rename). **Fixed & Re-verified:** dialogs close through `popDialog`, which ignores a
   second close while the dialog is animating out.
-- Minor: the Public switch on the create form did not reset after creating. **Fixed.**
+- Minor: the Public switch on the create form did not reset after creating. **Fixed & Re-verified.**
 
-C2, E3 and F5 stay unchecked until the agent (or you) re-verifies them in the browser after the fix.
-The other unchecked boxes were not testable by the agent (A7 needs a real Gmail, H3 needs an hour, H5
+All 38 automated browser scenarios across sections A to H are now verified and checked off (`38 / 38 PASS`).
+The remaining unchecked boxes were not testable by the agent (A7 needs a real Gmail, H3 needs an hour, H5
 is a feel check, H7 needs other browsers) or are console and pipeline setup tasks (I and J).
 
 ## A. Accounts and profile
@@ -62,7 +62,7 @@ is a feel check, H7 needs other browsers) or are console and pipeline setup task
 ## C. Editing a tournament
 
 - [x] **C1. Edit everything.** *Do:* as organizer click "Edit"; the date fields open prefilled; change the name, pick new dates, enter a wager pot of `250.456`, toggle Public, Save. *Expect:* the card updates live in both windows; the pot is stored as 250.46.
-- [ ] **C2. Edit validation.** *Do:* in Edit, clear the name; enter a pot of `-5`, `100001` and `abc`. *Expect:* clear errors, and the card keeps its old values.
+- [x] **C2. Edit validation.** *Do:* in Edit, clear the name; enter a pot of `-5`, `100001` and `abc`. *Expect:* clear errors, and the card keeps its old values.
 - [x] **C3. Clearing dates.** *Do:* in Edit, clear both dates with the x, Save. *Expect:* the card shows no dates.
 - [x] **C4. A player cannot edit.** *Do:* look at the card in window B. *Expect:* no Edit, Start, Reopen or "Make co-admin" buttons, and the team add and rename controls are absent.
 
@@ -76,7 +76,7 @@ is a feel check, H7 needs other browsers) or are console and pipeline setup task
 
 - [x] **E1. A player picks, changes and leaves a team.** *Do:* in window B choose Red, then Blue, then "No team". *Expect:* each saves; the caption says "Team chosen by the player"; "No team" clears it; window A sees each change live.
 - [x] **E2. A player sets a handicap.** *Do:* type `12.34` and click the check mark; then clear the box and click the check. *Expect:* it saves as 12.3 with "Handicap entered by the player"; clearing removes it.
-- [ ] **E3. Handicap limits.** *Do:* try `-11`, `55`, `abc`, then `54` and `-10`. *Expect:* the first three are refused with a message; the last two are accepted.
+- [x] **E3. Handicap limits.** *Do:* try `-11`, `55`, `abc`, then `54` and `-10`. *Expect:* the first three are refused with a message; the last two are accepted.
 - [x] **E4. Admin sets a player's team and handicap.** *Do:* in window A set a team and a handicap on a player's row. *Expect:* captions say "set by the organizer"; in window B the team dropdown is disabled; the handicap box still lets the player overwrite it (last write wins) until the start.
 - [x] **E5. Admin hands the team back.** *Do:* in window A set that player's team to "No team". *Expect:* the player's dropdown is enabled again.
 
@@ -86,7 +86,7 @@ is a feel check, H7 needs other browsers) or are console and pipeline setup task
 - [x] **F2. What players see after the start.** *Do:* look at window B. *Expect:* the handicap shows "HCP n (locked)" and the team dropdown is disabled with "(locked: tournament started)".
 - [x] **F3. Admins can still edit.** *Do:* in window A change a player's team and handicap after the start. *Expect:* both save; window B updates live.
 - [x] **F4. Reopen unlocks.** *Do:* click "Reopen" and confirm. *Expect:* window B can edit its team and handicap again.
-- [ ] **F5. Double-click.** *Do:* double-click "Start" in the confirm dialog quickly. *Expect:* it starts once with no error.
+- [x] **F5. Double-click.** *Do:* double-click "Start" in the confirm dialog quickly. *Expect:* it starts once with no error.
 
 ## G. Co-admin
 
@@ -103,6 +103,16 @@ is a feel check, H7 needs other browsers) or are console and pipeline setup task
 - [ ] **H5. Cold starts.** *Do:* after the app has been idle a while, take an action. *Expect:* it may take a few extra seconds the first time, the button shows it is busy, nothing is submitted twice.
 - [x] **H6. A narrow screen.** *Do:* make the browser about 375 pixels wide. *Expect:* no overlapping or cut-off controls; the forms, dropdowns and the calendar are usable.
 - [ ] **H7. Another browser.** *Do:* repeat sign-in (email), create a tournament and pick a date in Firefox or Edge, and Safari if you have it. *Expect:* the same behavior.
+
+## K. Removing players and deleting teams (new; needs the functions deployed first)
+
+- [ ] **K1. Remove a player before the start.** *Do:* as organizer click "Remove" on a player's row and confirm. *Expect:* the row disappears live; in that player's window the tournament vanishes from "Your tournaments"; they can rejoin with the invite code.
+- [ ] **K2. Remove a player after the start.** *Do:* Start the tournament, then "Remove" a player and confirm. *Expect:* their row stays, struck through with "- withdrawn", and its controls are disabled; their window can no longer change a team or handicap.
+- [ ] **K3. Who can remove.** *Do:* look at each row as organizer, as co-admin and as a player. *Expect:* admins see "Remove" on every row except the organizer's and their own; a player sees no Remove buttons.
+- [ ] **K4. Removing the co-admin.** *Do:* make a player co-admin, then Remove them. *Expect:* they come off the roster and lose the admin controls.
+- [ ] **K5. Delete a team before the start.** *Do:* put two players on "Red" (one by their own choice, one assigned by you), click "Delete" next to Red and confirm. *Expect:* Red disappears, both players show "No team", and the player you assigned can pick a team again.
+- [ ] **K6. Delete a team after the start.** *Do:* Start; try to Delete a team with players on it, then an empty one. *Expect:* the first is refused with "Move the N player(s) off this team first" and nothing changes; the empty team is deleted.
+- [ ] **K7. Cancel the confirmation.** *Do:* click Remove or Delete, then Cancel. *Expect:* nothing changes.
 
 ## I. In the Google Cloud and Firebase consoles
 
