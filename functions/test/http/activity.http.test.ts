@@ -24,7 +24,7 @@ describe('activity feed over HTTP', { timeout: 60_000 }, () => {
     expect(feed.http).toBe(200);
     expect(types(feed.docs).sort()).toEqual(['player_joined', 'teams_created', 'tournament_updated']);
     const joined = feed.docs.find((d) => d.data.type === 'player_joined')!;
-    expect(joined.data).toMatchObject({ actorId: player.uid, targetPlayerId: player.uid, level: 'admins' });
+    expect(joined.data).toMatchObject({ actorId: player.uid, targetPlayerId: player.uid, level: 'admins', category: 'roster' });
   });
 
   it('announces Start, Reopen and co-admin changes to every member, and not the quiet setup noise', async () => {

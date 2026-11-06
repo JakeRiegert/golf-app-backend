@@ -10,6 +10,9 @@ import { UsageTracker } from './usage';
 //     type              what happened (ACTIVITY_TYPES)
 //     actorId           uid of whoever did it
 //     targetPlayerId    uid the change is about, or null
+//     category          the label members filter and colour the feed by, and the unit notification
+//                       muting works on: essentials | changes | roster | scoring | moments (set from
+//                       the event's type by CATEGORY_OF_TYPE, so no caller has to remember it)
 //     level             who may read it: 'all' roster members, 'affected' the target plus admins,
 //                       'admins' admins only (admins can always read everything)
 //     changes           { field: { from, to } } for edits, else {}
@@ -35,6 +38,28 @@ export const ACTIVITY_TYPES = [
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
+// The few user-facing groups every event belongs to (not the event types, which are many and
+// internal). essentials: round cancelled or shortened, course or tee time changed, tournament
+// suspended or cancelled (none of these exist yet); changes: start and reopen, edits to dates and
+// rules, team and handicap changes; roster: joins, removals, teams created, renamed or deleted,
+// co-admin changes; scoring and moments arrive with Rounds and scores.
+export const ACTIVITY_CATEGORIES = ['essentials', 'changes', 'roster', 'scoring', 'moments'] as const;
+export type ActivityCategory = (typeof ACTIVITY_CATEGORIES)[number];
+
+export const CATEGORY_OF_TYPE: Record<ActivityType, ActivityCategory> = {
+  tournament_started: 'changes',
+  tournament_reopened: 'changes',
+  tournament_updated: 'changes',
+  team_assigned: 'changes',
+  handicap_changed: 'changes',
+  teams_created: 'roster',
+  team_updated: 'roster',
+  team_deleted: 'roster',
+  co_admin_changed: 'roster',
+  player_joined: 'roster',
+  player_removed: 'roster',
+};
+
 export interface ActivityInput {
   type: ActivityType;
   actorId: string;
@@ -59,6 +84,7 @@ export function logActivity(
   );
   tx.create(tournamentRef.collection('activity').doc(), {
     type: event.type,
+    category: CATEGORY_OF_TYPE[event.type],
     actorId: event.actorId,
     targetPlayerId: event.targetPlayerId ?? null,
     level: event.level,

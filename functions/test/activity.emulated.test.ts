@@ -188,6 +188,25 @@ describe('activity feed events', () => {
     expect(await feed(tid, base)).toHaveLength(0);
   });
 
+  it('labels every event with its category, so the feed can be filtered and coloured', async () => {
+    const { tid, red } = await setup();
+    await assignTournamentPlayer(db, 'org1', { tournamentId: tid, playerId: 'p1', teamId: red, handicap: 12 }, u());
+    await startTournament(db, 'org1', { tournamentId: tid }, u());
+    await assignCoAdmin(db, 'org1', { tournamentId: tid, playerId: 'p1' }, u());
+
+    const events = await feed(tid);
+    const byType = Object.fromEntries(events.map((e) => [e.type, e.category]));
+    expect(byType).toMatchObject({
+      player_joined: 'roster',
+      teams_created: 'roster',
+      team_assigned: 'changes',
+      handicap_changed: 'changes',
+      tournament_started: 'changes',
+      co_admin_changed: 'roster',
+    });
+    expect(events.every((e) => typeof e.category === 'string')).toBe(true);
+  });
+
   it('counts the event as a document written, so its cost shows in the usage log', async () => {
     const { tid } = await setup();
     const usage = u();
