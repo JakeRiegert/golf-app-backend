@@ -100,6 +100,20 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Rounds and their groups (who plays together, and when). Spectators of a public tournament see
+      // them too, so nothing private may ever be stored in these documents. Everything else that will
+      // live under a round (submissions, scores, disputes, cards, standings) is deliberately NOT matched
+      // here: it stays denied until its own rule and tests are added with the step that creates it.
+      match /rounds/{roundId} {
+        allow read: if canView(tid);
+        allow write: if false;
+
+        match /groups/{groupId} {
+          allow read: if canView(tid);
+          allow write: if false;
+        }
+      }
+
       // The activity feed (announcements and audit trail). Admins read all of it. A roster member
       // of an active tournament reads events at level 'all', plus events at level 'affected' that
       // are about them. Rules do not filter, they only allow or deny a whole query, so a member

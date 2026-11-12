@@ -5,6 +5,7 @@ import { diff, logActivity } from './activity';
 import { assertAdmin, requireId, requireTournamentId } from './authz';
 import { getDb } from './firestore';
 import { MAX_WAGER_POT_AMOUNT, Visibility } from './limits';
+import { cleanHolesPlanned, cleanMaxGroupSize } from './roundRules';
 import { cleanDate, cleanName, cleanVisibility } from './tournaments';
 import { callable, UsageTracker } from './usage';
 
@@ -16,6 +17,10 @@ export interface UpdateTournamentInput {
   endDate?: string | null;
   wagerPotAmount?: number | null;
   visibility?: string;
+  // Defaults every new round starts from (a round can still override them): 18 or 9 holes, and the
+  // largest group size. null clears the default.
+  defaultHolesPlanned?: number | null;
+  defaultMaxGroupSize?: number | null;
   // true = start (same as startTournament), false = reopen (players can edit their handicap again).
   started?: boolean;
 }
@@ -41,7 +46,17 @@ export interface CoAdminResult {
   coAdminId: string | null;
 }
 
-const UPDATABLE_FIELDS = new Set(['tournamentId', 'name', 'startDate', 'endDate', 'wagerPotAmount', 'visibility', 'started']);
+const UPDATABLE_FIELDS = new Set([
+  'tournamentId',
+  'name',
+  'startDate',
+  'endDate',
+  'wagerPotAmount',
+  'visibility',
+  'defaultHolesPlanned',
+  'defaultMaxGroupSize',
+  'started',
+]);
 
 function cleanWagerPot(value: unknown): number | null {
   if (value === null) return null;
@@ -74,6 +89,12 @@ export async function updateTournament(
   if (input.endDate !== undefined) changes.endDate = cleanDate('endDate', input.endDate);
   if (input.wagerPotAmount !== undefined) changes.wagerPotAmount = cleanWagerPot(input.wagerPotAmount);
   if (input.visibility !== undefined) changes.visibility = cleanVisibility(input.visibility);
+  if (input.defaultHolesPlanned !== undefined) {
+    changes.defaultHolesPlanned = input.defaultHolesPlanned === null ? null : cleanHolesPlanned(input.defaultHolesPlanned);
+  }
+  if (input.defaultMaxGroupSize !== undefined) {
+    changes.defaultMaxGroupSize = input.defaultMaxGroupSize === null ? null : cleanMaxGroupSize(input.defaultMaxGroupSize);
+  }
   if (input.started !== undefined && typeof input.started !== 'boolean') {
     throw new HttpsError('invalid-argument', 'started must be true or false');
   }
@@ -123,6 +144,8 @@ export async function updateTournament(
         endDate: current.endDate ?? null,
         wagerPotAmount: current.wagerPotAmount ?? null,
         visibility: current.visibility,
+        defaultHolesPlanned: current.defaultHolesPlanned ?? null,
+        defaultMaxGroupSize: current.defaultMaxGroupSize ?? null,
       },
       changes,
     );

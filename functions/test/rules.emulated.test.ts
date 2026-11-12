@@ -71,6 +71,13 @@ beforeEach(async () => {
       await setDoc(doc(db, 'tournaments', tid, 'activity', 'a-about-mem'), event('affected', 'mem'));
       await setDoc(doc(db, 'tournaments', tid, 'activity', 'a-about-other'), event('affected', 'other'));
       await setDoc(doc(db, 'tournaments', tid, 'activity', 'a-admins'), event('admins', 'mem'));
+      // A round with a group, plus the round-level collections that later steps will open one at a time.
+      const round = doc(db, 'tournaments', tid, 'rounds', 'r1');
+      await setDoc(round, { number: 1, status: 'scheduled' });
+      await setDoc(doc(round, 'groups', 'g1'), { order: 1, playerIds: ['mem'], teeHole: 1 });
+      for (const [sub, id] of [['scores', 's1'], ['submissions', 'sub1'], ['disputes', 'd1'], ['cards', 'c1']]) {
+        await setDoc(doc(round, sub, id), { playerId: 'mem', hole: 1 });
+      }
     }
 
     await setDoc(doc(db, 'players', 'alice'), { displayName: 'Alice' });
@@ -127,6 +134,67 @@ describe('public tournament (t2): spectating', () => {
 
   it('a stranger can never read the invite code', async () => {
     await assertFails(getDoc(doc(as('stranger'), 'tournaments', 't2', 'private', 'settings')));
+  });
+});
+
+describe('rounds and groups', () => {
+  const round = (tid: string, ...rest: string[]) => ['tournaments', tid, 'rounds', 'r1', ...rest] as const;
+
+  it('a roster member, the organizer and a co-admin can read rounds and groups', async () => {
+    for (const uid of ['mem', 'org', 'co']) {
+      const db = as(uid);
+      await assertSucceeds(getDoc(doc(db, ...round('t1'))));
+      await assertSucceeds(getDocs(collection(db, 'tournaments', 't1', 'rounds')));
+      await assertSucceeds(getDoc(doc(db, ...round('t1', 'groups', 'g1'))));
+      await assertSucceeds(getDocs(collection(db, ...round('t1', 'groups'))));
+    }
+  });
+
+  it('a stranger cannot read the rounds or groups of a private tournament, and a signed-out user nothing', async () => {
+    await assertFails(getDoc(doc(as('stranger'), ...round('t1'))));
+    await assertFails(getDocs(collection(as('stranger'), 'tournaments', 't1', 'rounds')));
+    await assertFails(getDoc(doc(as('stranger'), ...round('t1', 'groups', 'g1'))));
+    await assertFails(getDoc(doc(anon(), ...round('t2'))));
+    await assertFails(getDocs(collection(anon(), ...round('t2', 'groups'))));
+  });
+
+  it('spectators of a public tournament can read rounds and groups', async () => {
+    await assertSucceeds(getDoc(doc(as('stranger'), ...round('t2'))));
+    await assertSucceeds(getDocs(collection(as('stranger'), 'tournaments', 't2', 'rounds')));
+    await assertSucceeds(getDoc(doc(as('stranger'), ...round('t2', 'groups', 'g1'))));
+  });
+
+  it('a suspended tournament hides them from members; admins still see them', async () => {
+    await assertFails(getDoc(doc(as('mem'), ...round('t3'))));
+    await assertFails(getDoc(doc(as('stranger'), ...round('t4', 'groups', 'g1'))));
+    await assertSucceeds(getDoc(doc(as('org'), ...round('t3'))));
+  });
+
+  it('nobody can write them from a client, not even the organizer', async () => {
+    const db = as('org');
+    await assertFails(setDoc(doc(db, 'tournaments', 't1', 'rounds', 'new'), { number: 2 }));
+    await assertFails(updateDoc(doc(db, ...round('t1')), { status: 'finalized' }));
+    await assertFails(deleteDoc(doc(db, ...round('t1'))));
+    await assertFails(setDoc(doc(db, ...round('t1', 'groups', 'new')), { playerIds: ['org'] }));
+    await assertFails(updateDoc(doc(db, ...round('t1', 'groups', 'g1')), { playerIds: ['mem', 'org'] }));
+    await assertFails(deleteDoc(doc(db, ...round('t1', 'groups', 'g1'))));
+  });
+});
+
+// Scores, submissions, disputes and the derived cards and standings do not exist as readable data yet. Each
+// is opened by the build step that creates it, with its own allow and deny tests; until then no client
+// can read or write any of them, whoever they are. (When one opens, move its lines out of this test.)
+describe('round data that is not opened yet', () => {
+  it('is closed to everyone: admins, members, spectators and strangers', async () => {
+    for (const sub of [['scores', 's1'], ['submissions', 'sub1'], ['disputes', 'd1'], ['cards', 'c1']]) {
+      for (const uid of ['org', 'co', 'mem', 'stranger']) {
+        const db = as(uid);
+        await assertFails(getDoc(doc(db, 'tournaments', 't2', 'rounds', 'r1', sub[0], sub[1])));
+        await assertFails(getDocs(collection(db, 'tournaments', 't2', 'rounds', 'r1', sub[0])));
+        await assertFails(setDoc(doc(db, 'tournaments', 't2', 'rounds', 'r1', sub[0], 'mine'), { playerId: uid, hole: 1 }));
+      }
+      await assertFails(getDoc(doc(anon(), 'tournaments', 't2', 'rounds', 'r1', sub[0], sub[1])));
+    }
   });
 });
 

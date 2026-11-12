@@ -28,5 +28,17 @@ export const MAX_TEAM_NAME_LENGTH = 50;
 export const MIN_HANDICAP = -10;
 export const MAX_HANDICAP = 54;
 
+// Rounds (see docs/rounds-data-model.md). Safety caps, like the team and roster caps: they may become
+// billing tiers later rather than hard stops.
+export const MAX_ROUNDS_PER_TOURNAMENT = 30;
+// A group holds at most this many players; the round's own maxGroupSize (default 4) sits under it.
+export const MAX_GROUP_SIZE_CAP = 8;
+export const DEFAULT_GROUP_SIZE = 4;
+export const MAX_GROUPS_PER_ROUND = 100;
+export const MAX_COURSE_NAME_LENGTH = 100;
+export const MAX_TEES_LENGTH = 50;
+// Game formats a round may run. Stroke play (gross and net) is the first; others plug in later.
+export const FORMAT_IDS = ['strokePlay'] as const;
+
 // Largest team wager pot an admin can record (a sanity bound, not a payments limit).
 export const MAX_WAGER_POT_AMOUNT = 100000;

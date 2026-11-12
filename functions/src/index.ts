@@ -5,10 +5,12 @@ export {
   assignTournamentPlayerCallable as assignTournamentPlayer,
   chooseTeamCallable as chooseTeam,
 } from './assignment';
+export { setGroupsCallable as setGroups } from './groups';
 export { setMyHandicapCallable as setMyHandicap } from './handicap';
 export { startTournamentCallable as startTournament } from './lifecycle';
 export { upsertPlayerProfile } from './players';
 export { joinTournamentCallable as joinTournament, removePlayerCallable as removePlayer } from './roster';
+export { createRoundCallable as createRound, updateRoundCallable as updateRound } from './rounds';
 export {
   createTeamsCallable as createTeams,
   deleteTeamCallable as deleteTeam,

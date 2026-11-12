@@ -35,6 +35,10 @@ export const ACTIVITY_TYPES = [
   'player_joined',
   'player_removed',
   'team_deleted',
+  'round_created',
+  'round_updated',
+  'groups_changed',
+  'tee_time_changed',
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
@@ -58,6 +62,31 @@ export const CATEGORY_OF_TYPE: Record<ActivityType, ActivityCategory> = {
   co_admin_changed: 'roster',
   player_joined: 'roster',
   player_removed: 'roster',
+  round_created: 'changes',
+  round_updated: 'changes',
+  groups_changed: 'changes',
+  // A published tee time moving is something every player needs to see.
+  tee_time_changed: 'essentials',
+};
+
+// What each kind of event means, in plain words for the feed and the help pages. A test fails if a type
+// has no description, so a new event can never reach players as a raw type name.
+export const ACTIVITY_DESCRIPTIONS: Record<ActivityType, string> = {
+  tournament_started: 'The organizer started the tournament. Teams and handicaps are now locked for players.',
+  tournament_reopened: 'The organizer reopened the tournament. Players can edit their team and handicap again.',
+  tournament_updated: "A tournament detail changed, such as its name, dates, visibility or default round settings.",
+  teams_created: 'One or more teams were created.',
+  team_updated: 'A team was renamed or its color changed.',
+  team_assigned: "A player's team was set or changed.",
+  handicap_changed: "A player's handicap was set or changed.",
+  co_admin_changed: 'The co-admin was set, changed or removed.',
+  player_joined: 'A player joined the tournament.',
+  player_removed: 'A player was removed from the tournament.',
+  team_deleted: 'A team was deleted.',
+  round_created: 'A round was added to the tournament.',
+  round_updated: "A round's settings changed, such as its course, holes, group size, scoring or skins.",
+  groups_changed: "A round's groups were set or changed.",
+  tee_time_changed: 'A tee time that was already published has moved. Check your group time.',
 };
 
 export interface ActivityInput {
