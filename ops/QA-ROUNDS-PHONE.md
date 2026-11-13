@@ -93,4 +93,4 @@ and `npm test` in `functions/`.
 
 | Check | Result | Notes |
 |-------|--------|-------|
-|       |        |       |
+| F3 offline (2026-11-12, real phone) | FAIL, then fixed | Showed raw "internal [0]". Now shows "Couldn't reach the server. Check your connection and try again." Verified on the phone after the fix. |
