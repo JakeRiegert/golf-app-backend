@@ -10,6 +10,7 @@ import {
   Decision,
   decideSubmission,
   DecisionContext,
+  pickupValue,
   REJECTION_REASONS,
   SubmissionFields,
 } from './scoreRules';
@@ -145,10 +146,14 @@ export async function processSubmission(
       usage.wrote();
     } else {
       startPlan?.apply(fields.enteredBy, true);
+      // A pickup is recorded as the round's maximum for the hole, and the phone's own number is kept beside it.
+      const pickup = fields.kind === 'pickup' ? pickupValue(round!.scoring, round!.course?.holes[fields.hole - 1]?.par ?? null) : null;
+      const strokes = pickup ?? fields.strokes;
       tx.set(scoreRef, {
         playerId: fields.playerId,
         hole: fields.hole,
-        strokes: fields.strokes,
+        strokes,
+        ...(strokes !== fields.strokes ? { strokesEntered: fields.strokes } : {}),
         kind: fields.kind,
         groupId: fields.groupId,
         enteredBy: fields.enteredBy,

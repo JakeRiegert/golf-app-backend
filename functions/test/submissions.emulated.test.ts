@@ -93,6 +93,29 @@ describe('accepting a score', () => {
     expect((await scoreDocs(tid, rid))[0]).toMatchObject({ kind: 'pickup', strokes: 8 });
   });
 
+  it('a pickup is recorded as the maximum, with the phone\'s own number kept; a real score at the maximum stays a played score', async () => {
+    const { tid, rid, g1 } = await setup();
+    // par 4 everywhere, so the maximum is 8. The phone says 5 for a pickup, the server records 8.
+    await submit(tid, rid, { playerId: 'p1', hole: 1, strokes: 5, kind: 'pickup', groupId: g1, enteredBy: 'p1' });
+    // A player who actually took 8 is a played 8, a different thing from the pickup 8.
+    await submit(tid, rid, { playerId: 'p2', hole: 1, strokes: 8, kind: 'played', groupId: g1, enteredBy: 'p2' });
+    const scores = await scoreDocs(tid, rid);
+    const pickup = scores.find((s) => s.playerId === 'p1');
+    const played = scores.find((s) => s.playerId === 'p2');
+    expect(pickup).toMatchObject({ kind: 'pickup', strokes: 8, strokesEntered: 5 });
+    expect(played).toMatchObject({ kind: 'played', strokes: 8 });
+    expect(played.strokesEntered).toBeUndefined();
+  });
+
+  it('a pickup in a round with no course keeps the number it came with', async () => {
+    const t = await createTournament(db, 'org', { name: 'No course', startDate: '2026-11-13', endDate: '2026-11-15' }, u());
+    await joinTournament(db, 'p1', { inviteCode: t.inviteCode }, u());
+    const round = await createRound(db, 'org', { tournamentId: t.id, date: '2026-11-14' }, u());
+    const set = await setGroups(db, 'org', { tournamentId: t.id, roundId: round.id, groups: [{ playerIds: ['p1'] }] as never }, u());
+    await submit(t.id, round.id, { playerId: 'p1', hole: 1, strokes: 9, kind: 'pickup', groupId: set.groups[0].id, enteredBy: 'p1' });
+    expect((await scoreDocs(t.id, round.id))[0]).toMatchObject({ kind: 'pickup', strokes: 9 });
+  });
+
   it('the same submission processed twice leaves one score and does not repeat the work', async () => {
     const { tid, rid, g1 } = await setup();
     const { id } = await submit(tid, rid, { playerId: 'p1', hole: 1, strokes: 4, groupId: g1, enteredBy: 'p1' });

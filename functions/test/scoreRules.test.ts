@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_SCORING, Scoring } from '../src/roundRules';
-import { DecisionContext, decideSubmission, maxScoreFor, MAX_STROKES, REJECTION_REASONS } from '../src/scoreRules';
+import { DecisionContext, decideSubmission, maxScoreFor, MAX_STROKES, pickupValue, REJECTION_REASONS } from '../src/scoreRules';
 
 const par = (n: number) => ({ par: n, strokeIndex: 1, yards: null });
 const course = { name: 'C', tees: null, rating: null, slope: null, holes: Array.from({ length: 18 }, (_, i) => par(i % 3 === 0 ? 3 : i % 3 === 1 ? 4 : 5)) };
@@ -33,7 +33,32 @@ describe('maxScoreFor', () => {
   });
 });
 
+describe('pickupValue', () => {
+  const scoring = (mode: Scoring['maxScore']['mode'], value: number | null = null): Scoring => ({ ...DEFAULT_SCORING, maxScore: { mode, value } });
+  it('is the round maximum for the hole', () => {
+    expect(pickupValue(scoring('doublePar'), 4)).toBe(8);
+    expect(pickupValue(scoring('doublePar'), 5)).toBe(10);
+    expect(pickupValue(scoring('doubleBogey'), 3)).toBe(5);
+    expect(pickupValue(scoring('fixed', 7), 4)).toBe(7);
+    expect(pickupValue(scoring('fixed', 7), null)).toBe(7);
+  });
+  it('is unknown when there is no par to apply the maximum to', () => {
+    expect(pickupValue(scoring('doublePar'), null)).toBeNull();
+    expect(pickupValue(scoring('doubleBogey'), null)).toBeNull();
+  });
+});
+
 describe('decideSubmission', () => {
+  it('a pickup is accepted whatever number came with it, because it is recorded as the maximum', () => {
+    expect(decideSubmission(ctx({ submission: { kind: 'pickup', strokes: 3 } })).outcome).toBe('accepted');
+    expect(decideSubmission(ctx({ submission: { kind: 'pickup', strokes: 20 } })).outcome).toBe('accepted');
+  });
+  it('a pickup with no way to know the maximum is still held to the app-wide limits, and a played score to the round maximum', () => {
+    const noCourse = round({ course: null });
+    expect(decideSubmission(ctx({ round: noCourse, submission: { kind: 'pickup', strokes: 12 } })).outcome).toBe('accepted');
+    expect(decideSubmission(ctx({ submission: { kind: 'played', strokes: 20 } })).reason).toBe('overMax');
+  });
+
   it('accepts an ordinary score from someone in the group', () => {
     expect(decideSubmission(ctx())).toEqual({ outcome: 'accepted' });
   });

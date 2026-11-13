@@ -77,7 +77,17 @@ export function maxScoreFor(scoring: Scoring, par: number | null): number {
   return Math.min(cap, MAX_STROKES);
 }
 
-export const isAdminUid = (tournament: DecisionContext['tournament'], uid: string): boolean =>
+// What a pickup is recorded as: the round's maximum for that hole, whatever the phone sent. A pickup is the
+// app's assignment of the maximum (the player did not finish the hole), and it must stay distinguishable from
+// a score the player really made, because at equal strokes a real score beats a pickup (the tiebreak in the
+// scoring layer reads `kind`). Null when the maximum cannot be worked out (no course, so no par to apply
+// "double par" to); the phone's own number is kept then.
+export function pickupValue(scoring: Scoring, par: number | null): number | null {
+  if (scoring.maxScore.mode === 'fixed') return scoring.maxScore.value === null ? null : Math.min(scoring.maxScore.value, MAX_STROKES);
+  return par === null ? null : maxScoreFor(scoring, par);
+}
+
+export const isAdminUid =(tournament: DecisionContext['tournament'], uid: string): boolean =>
   tournament.organizerId === uid || tournament.coAdminId === uid;
 
 const reject = (reason: RejectionReason): Decision => ({ outcome: 'rejected', reason });
@@ -103,7 +113,10 @@ export function decideSubmission(ctx: DecisionContext): Decision {
     return reject('outOfRange');
   }
   const par = round.course?.holes[submission.hole - 1]?.par ?? null;
-  if (submission.strokes > maxScoreFor(round.scoring, par)) return reject('overMax');
+  // A pickup is recorded as the maximum whatever number came with it (see pickupValue), so only a played score,
+  // or a pickup whose maximum cannot be worked out, is checked against the maximum.
+  const pickupKnown = submission.kind === 'pickup' && pickupValue(round.scoring, par) !== null;
+  if (!pickupKnown && submission.strokes > maxScoreFor(round.scoring, par)) return reject('overMax');
 
   if (round.status === 'pending_review' || round.status === 'finalized') {
     // A score the phone entered before review began but only managed to send afterwards is a real score: keep it
