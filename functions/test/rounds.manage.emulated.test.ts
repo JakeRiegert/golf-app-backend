@@ -149,9 +149,15 @@ describe('tournament dates keep including every round', () => {
 
     const err = await rejection(updateTournament(db, 'org1', { tournamentId: tid, endDate: '2026-11-15' }, u()));
     expect(err.code).toBe('failed-precondition');
-    expect(err.message).toContain('Round 1');
-    expect(err.message).toContain('2026-11-25');
+    // Identified by its date (it has no name), never by the creation number the app does not show.
+    expect(err.message).toContain('The round on 2026-11-25');
+    expect(err.message).not.toContain('Round 1');
     expect((await tournamentData(tid)).endDate).toBe('2026-11-25');
+
+    // A named round is identified by its name and date.
+    await updateRound(db, 'org1', { tournamentId: tid, roundId: late.id, name: 'Extra' }, u());
+    const named = await rejection(updateTournament(db, 'org1', { tournamentId: tid, endDate: '2026-11-15' }, u()));
+    expect(named.message).toContain('"Extra" (2026-11-25)');
 
     await deleteRound(db, 'org1', { tournamentId: tid, roundId: late.id }, u());
     await updateTournament(db, 'org1', { tournamentId: tid, endDate: '2026-11-15' }, u());

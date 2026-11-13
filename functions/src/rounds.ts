@@ -364,7 +364,7 @@ export async function updateRound(
         if ((data.playerIds as string[]).length > maxGroupSize) {
           throw new HttpsError(
             'failed-precondition',
-            `Group ${data.order} has ${(data.playerIds as string[]).length} players, more than ${maxGroupSize}. Move players first.`,
+            `Group ${data.order} has ${(data.playerIds as string[]).length} players, more than ${maxGroupSize}. Move some of its players to another group first, then lower the size.`,
           );
         }
       }

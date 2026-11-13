@@ -43,7 +43,8 @@ describe('round names, deleteRound and tournament dates', { timeout: 60_000 }, (
       { tournamentId: trip.tournamentId, endDate: '2026-11-15' },
       'FAILED_PRECONDITION',
     );
-    expect(message).toContain('Round 1');
+    expect(message).toContain('The round on 2026-11-25');
+    expect(message).not.toContain('Round 1');
     await ok(trip.organizer, 'deleteRound', { tournamentId: trip.tournamentId, roundId: round.id });
     const updated = await ok(trip.organizer, 'updateTournament', { tournamentId: trip.tournamentId, endDate: '2026-11-15' });
     expect(updated.endDate).toBe('2026-11-15');

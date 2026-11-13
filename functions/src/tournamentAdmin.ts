@@ -124,11 +124,10 @@ export async function updateTournament(
         .filter((round) => (startDate && round.date < startDate) || (endDate && round.date > endDate))
         .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))[0];
       if (outside) {
-        const label = outside.name ? `"${outside.name}"` : `Round ${outside.number}`;
-        throw new HttpsError(
-          'failed-precondition',
-          `${label} is on ${outside.date}, outside these dates. Move or delete that round first.`,
-        );
+        // Identify the round by what people see (its name, or its date), never by the creation number: the app
+        // labels unnamed rounds by position in play order, which can differ from that number.
+        const label = outside.name ? `"${outside.name}" (${outside.date})` : `The round on ${outside.date}`;
+        throw new HttpsError('failed-precondition', `${label} is outside these dates. Move or delete that round first.`);
       }
     }
 

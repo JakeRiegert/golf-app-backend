@@ -61,7 +61,7 @@ ACCOUNT A AGAIN
 14. Sign in as A. On the FIRST card (Round 1) use Set groups > "Fill from the roster, in order". Expect one
     group with both players.
 15. On that same card: Round settings > Largest group = 1 player > Save. Expect it to be REFUSED with red text like
-    "Group 1 has 2 players, more than 1. Move players first." Record the exact message. The card must still say
+    "Group 1 has 2 players, more than 1. Move some of its players to another group first, then lower the size." Record the exact message. The card must still say
     "groups of up to 4" (or whatever it said before).
 16. On that same card tap Delete, confirm. Expect "Round deleted." and the card gone, even though it had a group.
     LIST (3 cards). The remaining cards' titles must be re-labeled by position (Round 1, Round 2, Friday AM or
