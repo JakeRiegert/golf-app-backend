@@ -1,4 +1,4 @@
-import { DocumentReference, FieldValue, Firestore, Timestamp } from 'firebase-admin/firestore';
+import { DocumentData, DocumentReference, FieldValue, Firestore, Timestamp, Transaction } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 
 import { announce, logActivity } from './activity';
@@ -80,7 +80,10 @@ export async function setGroups(
       }
     }
 
-    // Every player must be on the roster and still playing.
+    // Every player must be on the roster and still playing. A player withdrawn after being grouped stays in
+    // the groups of a round that is under way (it is the record of who played), so a group that already has
+    // them can still be saved; they cannot be added to a group.
+    const alreadyGrouped = new Set(existing.docs.flatMap((doc) => doc.data().playerIds as string[]));
     const playerIds = wanted.flatMap((group) => group.playerIds);
     if (playerIds.length > 0) {
       const refs = playerIds.map((id) => tournamentRef.collection('players').doc(id));
@@ -90,7 +93,7 @@ export async function setGroups(
         if (!entry.exists) {
           throw new HttpsError('failed-precondition', "A player in the groups is not on this tournament's roster");
         }
-        if (entry.data()?.withdrawn === true) {
+        if (entry.data()?.withdrawn === true && !alreadyGrouped.has(entry.id)) {
           throw new HttpsError('failed-precondition', 'A player in the groups has been removed from the tournament');
         }
       }
@@ -196,6 +199,77 @@ export async function setGroups(
     }
     return { groups: views };
   });
+}
+
+// When a player is removed from the roster, take them out of the groups of every round that has not started,
+// so a ghost never holds a seat and a later edit of that round's groups is not refused over them. A group
+// left with nobody is deleted and the rest are renumbered. Rounds that are live or finished are left as they
+// are: they are the record of who played. Reads happen here, in the caller's transaction and before any of its
+// writes; the returned apply() does the writes and leaves one groups_changed event per round it touched.
+export async function planGroupRemoval(
+  tx: Transaction,
+  tournamentRef: DocumentReference,
+  tournament: DocumentData,
+  playerId: string,
+  usage: UsageTracker,
+): Promise<{ apply: (uid: string) => void }> {
+  const rounds = await tx.get(tournamentRef.collection('rounds'));
+  usage.read(rounds.size);
+  const plans: { number: unknown; roundId: string; groups: FirebaseFirestore.QueryDocumentSnapshot[] }[] = [];
+  for (const round of rounds.docs) {
+    if (round.data().status !== ROUND_STATUS.SCHEDULED) continue;
+    const snap = await tx.get(round.ref.collection('groups'));
+    usage.read(snap.size);
+    if (!snap.docs.some((doc) => (doc.data().playerIds as string[]).includes(playerId))) continue;
+    plans.push({
+      number: round.data().number,
+      roundId: round.id,
+      groups: [...snap.docs].sort((a, b) => (a.data().order as number) - (b.data().order as number)),
+    });
+  }
+
+  return {
+    apply(uid: string) {
+      for (const plan of plans) {
+        let order = 0;
+        let changed = 0;
+        let deleted = 0;
+        for (const doc of plan.groups) {
+          const data = doc.data();
+          const before = data.playerIds as string[];
+          const after = before.filter((id) => id !== playerId);
+          if (after.length === 0) {
+            tx.delete(doc.ref);
+            deleted += 1;
+            continue;
+          }
+          order += 1;
+          const update: Record<string, unknown> = {};
+          if (after.length !== before.length) {
+            update.playerIds = after;
+            // Match-play sides name players too; a side left empty makes the pairing meaningless, so it is cleared.
+            const sides = (data.sides as Side[] | null) ?? null;
+            const trimmed = sides ? sides.map((side) => ({ playerIds: side.playerIds.filter((id) => id !== playerId) })) : null;
+            update.sides = trimmed && trimmed.every((side) => side.playerIds.length > 0) ? trimmed : null;
+          }
+          if (data.order !== order) update.order = order;
+          if (Object.keys(update).length > 0) {
+            update.updatedAt = FieldValue.serverTimestamp();
+            tx.update(doc.ref, update);
+            changed += 1;
+          }
+        }
+        usage.wrote(changed + deleted);
+        logActivity(tx, tournamentRef, usage, {
+          type: 'groups_changed',
+          actorId: uid,
+          targetPlayerId: playerId,
+          level: announce(Boolean(tournament.startedAt), 'admins'),
+          data: { roundId: plan.roundId, number: plan.number, groups: order, added: 0, changed, removed: deleted, reason: 'player_removed' },
+        });
+      }
+    },
+  };
 }
 
 export const setGroupsCallable = callable<SetGroupsInput, { groups: GroupView[] }>(

@@ -5,6 +5,7 @@ import { announce, logActivity } from './activity';
 import { assertAdmin, requireId, requireTournamentId } from './authz';
 import { getDb } from './firestore';
 import { MAX_ROSTER_SIZE, TOURNAMENT_STATUS } from './limits';
+import { planGroupRemoval } from './groups';
 import { callable, UsageTracker } from './usage';
 
 export interface JoinTournamentInput {
@@ -104,7 +105,8 @@ export interface RemovedPlayer {
 // starts the roster entry is simply deleted, and the person could rejoin with the code. After the
 // start nothing is deleted: the entry is marked withdrawn and kept, because their team, handicap and
 // (later) scores are part of the record; a withdrawn player can no longer change anything. The organizer
-// cannot be removed, and nobody can remove themselves here (leaving is a different action). If the removed
+// cannot be removed, and nobody can remove themselves here (leaving is a different action). The player also
+// leaves the groups of rounds that have not started (planGroupRemoval, groups.ts). If the removed
 // player was the co-admin, that role is cleared in the same transaction.
 export async function removePlayer(
   db: Firestore,
@@ -132,8 +134,13 @@ export async function removePlayer(
     if (!member.exists) {
       throw new HttpsError('not-found', 'That player is not on this tournament\'s roster');
     }
+    // Reads first (the rounds that still hold this player in a group), then every write.
+    const groupRemoval = await planGroupRemoval(tx, tournamentRef, tournament, playerId, usage);
     if (member.data()?.withdrawn === true) {
-      return { tournamentId, playerId, withdrawn: true }; // already withdrawn: nothing to do
+      // Already withdrawn: nothing to change on the roster. Groups that still hold them (from before this
+      // cleanup existed) are tidied now.
+      groupRemoval.apply(uid);
+      return { tournamentId, playerId, withdrawn: true };
     }
 
     const started = Boolean(tournament.startedAt);
@@ -147,6 +154,7 @@ export async function removePlayer(
       tx.delete(memberRef);
     }
     usage.wrote();
+    groupRemoval.apply(uid);
 
     if (tournament.coAdminId === playerId) {
       tx.update(tournamentRef, { coAdminId: null });
