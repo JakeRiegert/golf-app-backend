@@ -15,6 +15,8 @@ export {
   deleteRoundCallable as deleteRound,
   updateRoundCallable as updateRound,
 } from './rounds';
+export { startRoundCallable as startRound } from './roundStart';
+export { onSubmissionCreated } from './submissions';
 export {
   createTeamsCallable as createTeams,
   deleteTeamCallable as deleteTeam,

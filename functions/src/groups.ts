@@ -99,6 +99,25 @@ export async function setGroups(
       }
     }
 
+    // Once a round is under way, a player who already has a score in it cannot be taken out of its groups: the
+    // score would point at a group they are no longer in, and any entry still on a phone for them would be refused.
+    // Moving them to another group is fine. (Only players taken out entirely are looked up, so this costs nothing
+    // for an ordinary tee-time edit.)
+    if (round.status === ROUND_STATUS.LIVE) {
+      const stillGrouped = new Set(playerIds);
+      for (const id of alreadyGrouped) {
+        if (stillGrouped.has(id)) continue;
+        const scored = await tx.get(roundRef.collection('scores').where('playerId', '==', id).limit(1));
+        usage.read(scored.size);
+        if (!scored.empty) {
+          throw new HttpsError(
+            'failed-precondition',
+            'A player who already has scores in this round cannot be taken out of its groups. Move them to another group instead.',
+          );
+        }
+      }
+    }
+
     // Build the new set, and note what actually changed.
     const kept = new Set<string>();
     const writes: { ref: DocumentReference; data: Record<string, unknown>; isNew: boolean }[] = [];

@@ -17,6 +17,7 @@ const CALLABLES = [
   'removePlayer',
   'setGroups',
   'setMyHandicap',
+  'startRound',
   'startTournament',
   'updateRound',
   'deleteRound',

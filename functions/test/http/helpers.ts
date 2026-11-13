@@ -233,3 +233,41 @@ export async function queryCollection(
       .map((r) => ({ id: r.document!.name.split('/').pop()!, data: fields(r.document!.fields ?? {}) })),
   };
 }
+
+// A direct client create of one document (what the phone does for a score submission), as this user, under
+// the real security rules. Values are plain JS (string, integer, or boolean); returns the HTTP status.
+export async function createDoc(
+  user: TestUser | null,
+  parentPath: string,
+  collectionId: string,
+  documentId: string,
+  data: Record<string, string | number | boolean>,
+): Promise<number> {
+  const typed = Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [
+      key,
+      typeof value === 'string'
+        ? { stringValue: value }
+        : typeof value === 'boolean'
+          ? { booleanValue: value }
+          : { integerValue: String(value) },
+    ]),
+  );
+  const res = await fetch(`${docsBase}/${parentPath}/${collectionId}?documentId=${encodeURIComponent(documentId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader(user) },
+    body: JSON.stringify({ fields: typed }),
+  });
+  return res.status;
+}
+
+// Poll until a document exists (a function trigger has had time to run), or give up after about 20 seconds.
+export async function waitForDoc(user: TestUser | null, path: string, ready: (data: Record<string, any>) => boolean = () => true) {
+  let last: ReadResult = { http: 0 };
+  for (let i = 0; i < 80; i += 1) {
+    last = await readDoc(user, path);
+    if (last.http === 200 && last.data && ready(last.data)) return last;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return last;
+}

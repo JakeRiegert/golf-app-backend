@@ -102,7 +102,7 @@ service cloud.firestore {
 
       // Rounds and their groups (who plays together, and when). Spectators of a public tournament see
       // them too, so nothing private may ever be stored in these documents. Everything else that will
-      // live under a round (submissions, scores, disputes, cards, standings) is deliberately NOT matched
+      // live under a round and is not matched below (disputes, cards, standings) is deliberately NOT matched
       // here: it stays denied until its own rule and tests are added with the step that creates it.
       match /rounds/{roundId} {
         allow read: if canView(tid);
@@ -110,6 +110,43 @@ service cloud.firestore {
 
         match /groups/{groupId} {
           allow read: if canView(tid);
+          allow write: if false;
+        }
+
+        // The score inbox. A phone writes a submission (through Firestore's offline queue); a function checks it
+        // and writes the official score, or marks the submission rejected with a reason the phone shows. Clients
+        // can only CREATE one, and only with exactly these fields: the outcome fields (outcome, reason,
+        // processedAt) are written by the function alone. The document id is fixed by the content
+        // (player_hole_time), so a retried write is the same document and never a duplicate. The only lookup is
+        // roster membership (it keeps strangers out of a tournament they could otherwise run up cost in); the
+        // round's real checks (group, hole range, maximum score, lock) are the function's job. A person reads
+        // their own submissions (to see a rejection); admins read all of them.
+        match /submissions/{submissionId} {
+          allow read: if signedIn() && (isAdmin(tid) || resource.data.get('enteredBy', null) == me());
+          allow create: if signedIn() && isMember(tid)
+            && request.resource.data.keys().hasOnly(['playerId', 'hole', 'strokes', 'kind', 'groupId', 'enteredBy', 'clientTime'])
+            && request.resource.data.keys().hasAll(['playerId', 'hole', 'strokes', 'kind', 'groupId', 'enteredBy', 'clientTime'])
+            && request.resource.data.enteredBy == me()
+            && request.resource.data.playerId is string
+            && request.resource.data.playerId.size() >= 1 && request.resource.data.playerId.size() <= 64
+            && request.resource.data.groupId is string
+            && request.resource.data.groupId.size() >= 1 && request.resource.data.groupId.size() <= 64
+            && request.resource.data.hole is int
+            && request.resource.data.hole >= 1 && request.resource.data.hole <= 18
+            && request.resource.data.strokes is int
+            && request.resource.data.strokes >= 1 && request.resource.data.strokes <= 20
+            && request.resource.data.kind in ['played', 'pickup']
+            && request.resource.data.clientTime is int
+            && request.resource.data.clientTime > 0
+            && submissionId == request.resource.data.playerId + '_' + string(request.resource.data.hole)
+                               + '_' + string(request.resource.data.clientTime);
+          allow update, delete: if false;
+        }
+
+        // The official score entries, written only by the function. Roster members and admins read them;
+        // spectators see the derived cards and standings instead, never the raw entries.
+        match /scores/{scoreId} {
+          allow read: if canViewPrivate(tid);
           allow write: if false;
         }
       }

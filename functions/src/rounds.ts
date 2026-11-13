@@ -413,8 +413,8 @@ export interface DeleteRoundInput {
 // instead (a later step), so a result is never deleted. Refused for an
 // unknown round. Players have already seen the groups and tee times, so the feed event goes to everyone when
 // the round had groups, and follows the usual before-Start rule otherwise.
-// NOTE for the score-entry step: this must also refuse when the round has any score submission, and delete
-// or refuse on any other per-round collection added later.
+// Also refused when the round has any score submission (even a pending or rejected one). Any per-round
+// collection added later must be deleted here or must block deletion.
 export async function deleteRound(
   db: Firestore,
   uid: string,
@@ -440,6 +440,12 @@ export async function deleteRound(
     usage.read(scores.size);
     if (!scores.empty) {
       throw new HttpsError('failed-precondition', 'A score has been entered, so this round cannot be deleted');
+    }
+    // A score still waiting to be checked (or one that was turned away) counts too: it belongs to this round.
+    const submissions = await tx.get(roundRef.collection('submissions').limit(1));
+    usage.read(submissions.size);
+    if (!submissions.empty) {
+      throw new HttpsError('failed-precondition', 'A score has been entered or is waiting to sync, so this round cannot be deleted');
     }
     const groups = await tx.get(roundRef.collection('groups'));
     usage.read(groups.size);

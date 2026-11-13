@@ -94,12 +94,19 @@ describe('createRound and updateRound', { timeout: 60_000 }, () => {
     await refused(trip.organizer, 'updateTournament', { tournamentId: trip.tournamentId, defaultMaxGroupSize: 20 }, 'INVALID_ARGUMENT');
   });
 
-  it('keeps round data that is not opened yet closed to everyone', async () => {
+  it('keeps unopened round data closed, and opens scores and submissions only to the right people', async () => {
     const trip = await newTrip({ visibility: 'public' });
     const round = await ok(trip.organizer, 'createRound', { tournamentId: trip.tournamentId, date: '2026-11-14' });
     const base = `tournaments/${trip.tournamentId}/rounds/${round.id}`;
-    for (const sub of ['scores', 'submissions', 'disputes', 'cards']) {
+    for (const sub of ['disputes', 'cards']) {
       expect((await listDocs(trip.organizer, `${base}/${sub}`)).http, sub).toBe(403);
     }
+    // Scores and the submission inbox are open now, to the people who should see them (see submissions.http.test.ts).
+    expect((await listDocs(trip.organizer, `${base}/scores`)).http).toBe(200);
+    expect((await listDocs(trip.organizer, `${base}/submissions`)).http).toBe(200);
+    // A spectator of this public tournament sees neither the raw scores nor anyone's submissions.
+    const spectator = await signUp('spectator');
+    expect((await listDocs(spectator, `${base}/scores`)).http).toBe(403);
+    expect((await listDocs(spectator, `${base}/submissions`)).http).toBe(403);
   });
 });
