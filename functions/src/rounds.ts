@@ -218,7 +218,8 @@ export async function createRound(
     const skippedHoles = input.skippedHoles === undefined ? [] : cleanSkippedHoles(input.skippedHoles, range);
     const course = input.course === undefined ? null : cleanCourse(input.course, range);
     const formats = input.formats === undefined ? DEFAULT_FORMATS : cleanFormats(input.formats);
-    const scoring = input.scoring === undefined ? DEFAULT_SCORING : cleanScoring(input.scoring);
+    const defaultScoring = (tournament.defaultScoring as Scoring | null | undefined) ?? DEFAULT_SCORING;
+    const scoring = input.scoring === undefined ? defaultScoring : cleanScoring(input.scoring, defaultScoring);
     const skins = input.skins === undefined ? DEFAULT_SKINS : cleanSkins(input.skins);
     const timeZone = input.timeZone === undefined ? (tournament.timeZone ?? null) : cleanTimeZone(input.timeZone);
     const name = cleanRoundName(input.name);
@@ -316,7 +317,7 @@ export async function updateRound(
     const skippedHoles = cleanSkippedHoles(input.skippedHoles === undefined ? (current.skippedHoles ?? []) : input.skippedHoles, range);
     const course = cleanCourse(input.course === undefined ? (current.course ?? null) : input.course, range);
     const formats = input.formats === undefined ? (current.formats as RoundFormat[]) : cleanFormats(input.formats);
-    const scoring = input.scoring === undefined ? (current.scoring as Scoring) : cleanScoring(input.scoring);
+    const scoring = input.scoring === undefined ? (current.scoring as Scoring) : cleanScoring(input.scoring, current.scoring as Scoring);
     const skins = input.skins === undefined ? (current.skins as Skins) : cleanSkins(input.skins);
     const timeZone = input.timeZone === undefined ? (current.timeZone ?? null) : cleanTimeZone(input.timeZone);
     const date = newDate ?? (current.date as string);

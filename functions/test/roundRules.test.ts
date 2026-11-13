@@ -198,6 +198,30 @@ describe('formats, scoring and skins', () => {
     invalid(() => cleanScoring({ mulligans: true }), 'scoring.mulligans');
   });
 
+  it("'none' records every real stroke with no maximum, and takes no value", () => {
+    expect(cleanScoring({ maxScore: { mode: 'none' } })).toEqual({
+      handicapMode: 'net',
+      maxScore: { mode: 'none', value: null },
+      tiebreak: null,
+    });
+    invalid(() => cleanScoring({ maxScore: { mode: 'none', value: 8 } }), 'only used');
+  });
+
+  it('settings left out keep their current value instead of snapping back to the defaults', () => {
+    const current = { handicapMode: 'net' as const, maxScore: { mode: 'none' as const, value: null }, tiebreak: 'countback' as const };
+    // Changing only the handicap mode must not bring the maximum back.
+    expect(cleanScoring({ handicapMode: 'gross' }, current)).toEqual({ ...current, handicapMode: 'gross' });
+    expect(cleanScoring({}, current)).toEqual(current);
+    // Naming a new maximum replaces just that part.
+    expect(cleanScoring({ maxScore: { mode: 'fixed', value: 9 } }, current)).toEqual({ ...current, maxScore: { mode: 'fixed', value: 9 } });
+    expect(cleanScoring({ tiebreak: null }, current).tiebreak).toBeNull();
+  });
+
+  it('a fixed maximum can be up to the app-wide stroke limit (30)', () => {
+    expect(cleanScoring({ maxScore: { mode: 'fixed', value: 30 } }).maxScore.value).toBe(30);
+    invalid(() => cleanScoring({ maxScore: { mode: 'fixed', value: 31 } }), '30');
+  });
+
   it('fills skins defaults and checks the amount', () => {
     expect(cleanSkins({})).toEqual({ enabled: false, mode: 'perSkin', value: null, carryover: false });
     expect(cleanSkins({ enabled: true, mode: 'potSplit', value: 20.456, carryover: true })).toEqual({

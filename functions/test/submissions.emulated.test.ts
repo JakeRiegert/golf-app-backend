@@ -6,9 +6,10 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { setGroups } from '../src/groups';
 import { setMyHandicap } from '../src/handicap';
 import { joinTournament, removePlayer } from '../src/roster';
-import { createRound, deleteRound } from '../src/rounds';
+import { createRound, deleteRound, updateRound } from '../src/rounds';
 import { startRound } from '../src/roundStart';
 import { processSubmission } from '../src/submissions';
+import { updateTournament } from '../src/tournamentAdmin';
 import { createTournament } from '../src/tournaments';
 import { UsageTracker } from '../src/usage';
 
@@ -114,6 +115,56 @@ describe('accepting a score', () => {
     const set = await setGroups(db, 'org', { tournamentId: t.id, roundId: round.id, groups: [{ playerIds: ['p1'] }] as never }, u());
     await submit(t.id, round.id, { playerId: 'p1', hole: 1, strokes: 9, kind: 'pickup', groupId: set.groups[0].id, enteredBy: 'p1' });
     expect((await scoreDocs(t.id, round.id))[0]).toMatchObject({ kind: 'pickup', strokes: 9 });
+  });
+
+  it('a tournament set to record every stroke accepts a 14 on a par 4, and refuses a pickup', async () => {
+    const t = await createTournament(db, 'org', { name: 'High school', startDate: '2026-11-13', endDate: '2026-11-15' }, u());
+    await joinTournament(db, 'p1', { inviteCode: t.inviteCode }, u());
+    // Chosen once up front on the tournament; the round inherits it.
+    await updateTournament(db, 'org', { tournamentId: t.id, defaultScoring: { maxScore: { mode: 'none' } } }, u());
+    const round = await createRound(db, 'org', { tournamentId: t.id, date: '2026-11-14', course: { name: 'C', holes } as never }, u());
+    expect((await roundDoc(t.id, round.id)).scoring.maxScore).toEqual({ mode: 'none', value: null });
+    const set = await setGroups(db, 'org', { tournamentId: t.id, roundId: round.id, groups: [{ playerIds: ['p1'] }] as never }, u());
+    const g = set.groups[0].id;
+
+    await submit(t.id, round.id, { playerId: 'p1', hole: 1, strokes: 14, groupId: g, enteredBy: 'p1' });
+    expect((await scoreDocs(t.id, round.id))[0]).toMatchObject({ kind: 'played', strokes: 14 });
+    const { id } = await submit(t.id, round.id, { playerId: 'p1', hole: 2, strokes: 14, kind: 'pickup', groupId: g, enteredBy: 'p1' });
+    expect((await subDoc(t.id, round.id, id)).reasonCode).toBe('noPickups');
+  });
+
+  it('the default scoring is merged against what the tournament has, only a real change is logged, and a round can still differ', async () => {
+    const t = await createTournament(db, 'org', { name: 'Defaults', startDate: '2026-11-13', endDate: '2026-11-15' }, u());
+    const tdoc = async () => (await db.collection('tournaments').doc(t.id).get()).data()!;
+    await updateTournament(db, 'org', { tournamentId: t.id, defaultScoring: { maxScore: { mode: 'none' } } }, u());
+    await updateTournament(db, 'org', { tournamentId: t.id, defaultScoring: { handicapMode: 'gross' } }, u());
+    // The second edit named only the handicap mode; the maximum stays "none".
+    expect((await tdoc()).defaultScoring).toMatchObject({ handicapMode: 'gross', maxScore: { mode: 'none', value: null } });
+    const logged = (await feedOf(t.id, 'tournament_updated')).length;
+    expect(logged).toBe(2);
+    // The same value again changes nothing and leaves no event.
+    await updateTournament(db, 'org', { tournamentId: t.id, defaultScoring: { handicapMode: 'gross' } }, u());
+    expect((await feedOf(t.id, 'tournament_updated')).length).toBe(logged);
+
+    // A round inherits it, an explicit setting on the round wins, and a partial edit keeps the rest.
+    const inherited = await createRound(db, 'org', { tournamentId: t.id, date: '2026-11-14' }, u());
+    expect((await roundDoc(t.id, inherited.id)).scoring).toMatchObject({ handicapMode: 'gross', maxScore: { mode: 'none' } });
+    const explicit = await createRound(db, 'org', { tournamentId: t.id, date: '2026-11-15', scoring: { maxScore: { mode: 'doublePar' } } }, u());
+    expect((await roundDoc(t.id, explicit.id)).scoring).toMatchObject({ handicapMode: 'gross', maxScore: { mode: 'doublePar' } });
+    await updateRound(db, 'org', { tournamentId: t.id, roundId: inherited.id, scoring: { handicapMode: 'net' } }, u());
+    expect((await roundDoc(t.id, inherited.id)).scoring).toMatchObject({ handicapMode: 'net', maxScore: { mode: 'none' } });
+
+    // Clearing the tournament default goes back to the standard rules for rounds made afterwards.
+    await updateTournament(db, 'org', { tournamentId: t.id, defaultScoring: null }, u());
+    const later = await createRound(db, 'org', { tournamentId: t.id, date: '2026-11-13' }, u());
+    expect((await roundDoc(t.id, later.id)).scoring.maxScore).toEqual({ mode: 'doublePar', value: null });
+  });
+
+  it('a 14 on a par 4 is turned away when the round keeps the usual maximum', async () => {
+    const { tid, rid, g1 } = await setup();
+    const { id } = await submit(tid, rid, { playerId: 'p1', hole: 1, strokes: 14, groupId: g1, enteredBy: 'p1' });
+    expect((await subDoc(tid, rid, id)).reasonCode).toBe('overMax');
+    expect(await scoreDocs(tid, rid)).toHaveLength(0);
   });
 
   it('the same submission processed twice leaves one score and does not repeat the work', async () => {

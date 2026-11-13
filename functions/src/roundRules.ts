@@ -7,6 +7,7 @@ import {
   MAX_COURSE_NAME_LENGTH,
   MAX_GROUP_SIZE_CAP,
   MAX_ROUND_NAME_LENGTH,
+  MAX_STROKES,
   MAX_TEES_LENGTH,
   MAX_WAGER_POT_AMOUNT,
 } from './limits';
@@ -243,7 +244,8 @@ export const DEFAULT_FORMATS: RoundFormat[] = [{ formatId: 'strokePlay', config:
 
 export interface Scoring {
   handicapMode: 'gross' | 'net';
-  maxScore: { mode: 'doublePar' | 'doubleBogey' | 'fixed'; value: number | null };
+  // 'none' records the real score with no maximum (some formats, such as a high school match, need every stroke).
+  maxScore: { mode: 'doublePar' | 'doubleBogey' | 'fixed' | 'none'; value: number | null };
   tiebreak: 'countback' | null;
 }
 
@@ -253,34 +255,35 @@ export const DEFAULT_SCORING: Scoring = {
   tiebreak: null,
 };
 
-// Settings that were not given keep their defaults, so { handicapMode: 'gross' } alone is valid.
-export function cleanScoring(value: unknown): Scoring {
+// Settings that were not given keep their value from `base` (the defaults unless the caller passes the round's
+// or tournament's current settings), so { handicapMode: 'gross' } alone is valid and changes nothing else.
+export function cleanScoring(value: unknown, base: Scoring = DEFAULT_SCORING): Scoring {
   if (!isPlainObject(value)) return bad('scoring must be an object');
   onlyKeys('scoring', value, ['handicapMode', 'maxScore', 'tiebreak']);
-  const handicapMode = value.handicapMode ?? DEFAULT_SCORING.handicapMode;
+  const handicapMode = value.handicapMode ?? base.handicapMode;
   if (handicapMode !== 'gross' && handicapMode !== 'net') bad("scoring.handicapMode must be 'gross' or 'net'");
 
-  const rawMax = value.maxScore ?? DEFAULT_SCORING.maxScore;
+  const rawMax = value.maxScore ?? base.maxScore;
   if (!isPlainObject(rawMax)) return bad('scoring.maxScore must be an object');
   onlyKeys('scoring.maxScore', rawMax, ['mode', 'value']);
-  const mode = rawMax.mode ?? 'doublePar';
-  if (mode !== 'doublePar' && mode !== 'doubleBogey' && mode !== 'fixed') {
-    bad("scoring.maxScore.mode must be 'doublePar', 'doubleBogey' or 'fixed'");
+  const mode = rawMax.mode ?? base.maxScore.mode;
+  if (mode !== 'doublePar' && mode !== 'doubleBogey' && mode !== 'fixed' && mode !== 'none') {
+    bad("scoring.maxScore.mode must be 'doublePar', 'doubleBogey', 'fixed' or 'none'");
   }
   let maxValue: number | null = null;
   if (mode === 'fixed') {
-    if (!isInt(rawMax.value, 1, 20)) bad('scoring.maxScore.value must be a whole number from 1 to 20 for a fixed maximum');
+    if (!isInt(rawMax.value, 1, MAX_STROKES)) bad(`scoring.maxScore.value must be a whole number from 1 to ${MAX_STROKES} for a fixed maximum`);
     maxValue = rawMax.value as number;
   } else if (rawMax.value !== undefined && rawMax.value !== null) {
     bad("scoring.maxScore.value is only used with mode 'fixed'");
   }
 
-  const tiebreak = value.tiebreak ?? null;
+  const tiebreak = value.tiebreak === undefined ? base.tiebreak : value.tiebreak;
   if (tiebreak !== null && tiebreak !== 'countback') bad("scoring.tiebreak must be 'countback' or null");
 
   return {
     handicapMode: handicapMode as 'gross' | 'net',
-    maxScore: { mode: mode as 'doublePar' | 'doubleBogey' | 'fixed', value: maxValue },
+    maxScore: { mode: mode as 'doublePar' | 'doubleBogey' | 'fixed' | 'none', value: maxValue },
     tiebreak: tiebreak as 'countback' | null,
   };
 }

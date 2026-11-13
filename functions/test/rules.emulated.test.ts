@@ -249,7 +249,7 @@ describe('the score inbox (submissions) and official scores', () => {
 
   it('refuses values out of range or of the wrong type', async () => {
     for (const bad of [
-      { strokes: 0 }, { strokes: 21 }, { strokes: 4.5 }, { strokes: '4' },
+      { strokes: 0 }, { strokes: 31 }, { strokes: 4.5 }, { strokes: '4' },
       { hole: 0 }, { hole: 19 }, { hole: 2.5 },
       { kind: 'dispute' }, { kind: 'correction' }, { kind: 'x' },
       { clientTime: 0 }, { clientTime: -5 }, { clientTime: 'now' },

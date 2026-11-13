@@ -25,11 +25,31 @@ describe('maxScoreFor', () => {
     expect(maxScoreFor(scoring('doublePar'), 4)).toBe(8);
     expect(maxScoreFor(scoring('doubleBogey'), 4)).toBe(6);
     expect(maxScoreFor(scoring('fixed', 7), 4)).toBe(7);
-    expect(maxScoreFor(scoring('doublePar'), 12)).toBe(MAX_STROKES);
+    expect(maxScoreFor(scoring('doublePar'), 16)).toBe(MAX_STROKES);
   });
   it('with no course, only the fixed value or the app-wide bound applies', () => {
     expect(maxScoreFor(scoring('doublePar'), null)).toBe(MAX_STROKES);
     expect(maxScoreFor(scoring('fixed', 9), null)).toBe(9);
+  });
+});
+
+describe('a round with no maximum score', () => {
+  const none: Scoring = { ...DEFAULT_SCORING, maxScore: { mode: 'none', value: null } };
+  const noMax = (over: Record<string, unknown> = {}) => ({ ...ctx().round!, scoring: none, ...over });
+
+  it('accepts a real 14 on a par 4 (a high school match records every stroke)', () => {
+    expect(maxScoreFor(none, 4)).toBe(MAX_STROKES);
+    expect(decideSubmission(ctx({ round: noMax(), submission: { strokes: 14 } })).outcome).toBe('accepted');
+    expect(decideSubmission(ctx({ round: noMax(), submission: { strokes: 30 } })).outcome).toBe('accepted');
+  });
+
+  it('the same 14 is turned away in a round with the usual double-par maximum', () => {
+    expect(decideSubmission(ctx({ submission: { strokes: 14 } })).reason).toBe('overMax');
+  });
+
+  it('refuses a pickup, since there is no maximum to assign', () => {
+    expect(pickupValue(none, 4)).toBeNull();
+    expect(decideSubmission(ctx({ round: noMax(), submission: { kind: 'pickup', strokes: 14 } })).reason).toBe('noPickups');
   });
 });
 

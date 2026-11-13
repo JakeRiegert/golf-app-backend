@@ -5,7 +5,7 @@ import { diff, logActivity } from './activity';
 import { assertAdmin, requireId, requireTournamentId } from './authz';
 import { getDb } from './firestore';
 import { MAX_WAGER_POT_AMOUNT, Visibility } from './limits';
-import { cleanHolesPlanned, cleanMaxGroupSize } from './roundRules';
+import { cleanHolesPlanned, cleanMaxGroupSize, cleanScoring, DEFAULT_SCORING, sameValue, Scoring } from './roundRules';
 import { cleanDate, cleanName, cleanVisibility } from './tournaments';
 import { callable, UsageTracker } from './usage';
 
@@ -21,6 +21,10 @@ export interface UpdateTournamentInput {
   // largest group size. null clears the default.
   defaultHolesPlanned?: number | null;
   defaultMaxGroupSize?: number | null;
+  // The scoring settings every new round starts from, set once up front: handicap mode, the maximum score per
+  // hole (double par by default, or 'none' to record every real stroke), and the tiebreak. Settings left out
+  // keep their current value. null clears the default.
+  defaultScoring?: Partial<Scoring> | null;
   // true = start (same as startTournament), false = reopen (players can edit their handicap again).
   started?: boolean;
 }
@@ -55,6 +59,7 @@ const UPDATABLE_FIELDS = new Set([
   'visibility',
   'defaultHolesPlanned',
   'defaultMaxGroupSize',
+  'defaultScoring',
   'started',
 ]);
 
@@ -95,10 +100,11 @@ export async function updateTournament(
   if (input.defaultMaxGroupSize !== undefined) {
     changes.defaultMaxGroupSize = input.defaultMaxGroupSize === null ? null : cleanMaxGroupSize(input.defaultMaxGroupSize);
   }
+  const scoringChange = input.defaultScoring;
   if (input.started !== undefined && typeof input.started !== 'boolean') {
     throw new HttpsError('invalid-argument', 'started must be true or false');
   }
-  if (Object.keys(changes).length === 0 && input.started === undefined) {
+  if (Object.keys(changes).length === 0 && input.started === undefined && scoringChange === undefined) {
     throw new HttpsError('invalid-argument', 'provide at least one field to change');
   }
 
@@ -107,6 +113,12 @@ export async function updateTournament(
 
   return db.runTransaction(async (tx) => {
     const current = await assertAdmin(tx, tournamentRef, uid, usage);
+
+    // Settings left out of defaultScoring keep their current value; null clears the default.
+    const scoringBefore = (current.defaultScoring as Scoring | null | undefined) ?? null;
+    if (scoringChange !== undefined) {
+      changes.defaultScoring = scoringChange === null ? null : cleanScoring(scoringChange, scoringBefore ?? DEFAULT_SCORING);
+    }
 
     const startDate = 'startDate' in changes ? (changes.startDate as string | null) : (current.startDate ?? null);
     const endDate = 'endDate' in changes ? (changes.endDate as string | null) : (current.endDate ?? null);
@@ -166,6 +178,11 @@ export async function updateTournament(
       },
       changes,
     );
+    // Compared by value (the default is an object, which a plain !== would always see as changed).
+    if ('defaultScoring' in changes) delete fieldChanges.defaultScoring;
+    if ('defaultScoring' in changes && !sameValue(scoringBefore, changes.defaultScoring ?? null)) {
+      fieldChanges.defaultScoring = { from: scoringBefore, to: changes.defaultScoring ?? null };
+    }
     if (Object.keys(fieldChanges).length > 0) {
       logActivity(tx, tournamentRef, usage, {
         type: 'tournament_updated',

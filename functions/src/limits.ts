@@ -38,6 +38,9 @@ export const MAX_GROUPS_PER_ROUND = 100;
 export const MAX_COURSE_NAME_LENGTH = 100;
 export const MAX_TEES_LENGTH = 50;
 export const MAX_ROUND_NAME_LENGTH = 40;
+// The most strokes one hole can show, as a sanity bound for any score entry (a no-maximum format still needs
+// room for a 14 or a 25; the round's own maximum, double par by default, is tighter). Also in firestore.rules.
+export const MAX_STROKES = 30;
 // Game formats a round may run. Stroke play (gross and net) is the first; others plug in later.
 export const FORMAT_IDS = ['strokePlay'] as const;
 

@@ -1,11 +1,10 @@
+import { MAX_STROKES } from './limits';
 import { Course, Scoring } from './roundRules';
+
+export { MAX_STROKES };
 
 // The checks a score submission goes through before it becomes an official score (docs/rounds-data-model.md,
 // sections 2.3 and 2.3b). Pure functions: no database, so every rule is unit-tested on its own.
-
-// The largest number of strokes any single hole can take, as far as this app is concerned. The security rule
-// enforces the same bound on the phone's write; the round's own maximum (double par by default) is tighter.
-export const MAX_STROKES = 20;
 
 // A phone clock ahead of the server by more than this is treated as wrong: the entry is accepted, but its
 // time is pulled back to the server's clock so one bad clock cannot make an entry win every later race.
@@ -21,6 +20,7 @@ export const REJECTION_REASONS = {
   withdrawn: 'This player was removed from the tournament.',
   outOfRange: 'That hole is not part of this round.',
   overMax: 'That is more than the most this round allows on that hole. Enter the maximum instead.',
+  noPickups: 'This round records every stroke with no maximum, so a pickup cannot be entered. Enter the real score.',
   inReview: 'The round is in review: ask the organizer to change this score.',
   finalized: 'The round is final: ask the organizer to reopen it to change a score.',
 } as const;
@@ -83,6 +83,7 @@ export function maxScoreFor(scoring: Scoring, par: number | null): number {
 // scoring layer reads `kind`). Null when the maximum cannot be worked out (no course, so no par to apply
 // "double par" to); the phone's own number is kept then.
 export function pickupValue(scoring: Scoring, par: number | null): number | null {
+  if (scoring.maxScore.mode === 'none') return null;
   if (scoring.maxScore.mode === 'fixed') return scoring.maxScore.value === null ? null : Math.min(scoring.maxScore.value, MAX_STROKES);
   return par === null ? null : maxScoreFor(scoring, par);
 }
@@ -113,6 +114,8 @@ export function decideSubmission(ctx: DecisionContext): Decision {
     return reject('outOfRange');
   }
   const par = round.course?.holes[submission.hole - 1]?.par ?? null;
+  // A round with no maximum records every real stroke, so there is no maximum to assign as a pickup.
+  if (submission.kind === 'pickup' && round.scoring.maxScore.mode === 'none') return reject('noPickups');
   // A pickup is recorded as the maximum whatever number came with it (see pickupValue), so only a played score,
   // or a pickup whose maximum cannot be worked out, is checked against the maximum.
   const pickupKnown = submission.kind === 'pickup' && pickupValue(round.scoring, par) !== null;

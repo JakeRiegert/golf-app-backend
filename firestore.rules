@@ -134,7 +134,7 @@ service cloud.firestore {
             && request.resource.data.hole is int
             && request.resource.data.hole >= 1 && request.resource.data.hole <= 18
             && request.resource.data.strokes is int
-            && request.resource.data.strokes >= 1 && request.resource.data.strokes <= 20
+            && request.resource.data.strokes >= 1 && request.resource.data.strokes <= 30
             && request.resource.data.kind in ['played', 'pickup']
             && request.resource.data.clientTime is int
             && request.resource.data.clientTime > 0
