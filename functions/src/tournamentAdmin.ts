@@ -113,6 +113,24 @@ export async function updateTournament(
     if (startDate && endDate && endDate < startDate) {
       throw new HttpsError('invalid-argument', 'endDate cannot be before startDate');
     }
+    // The dates must keep including every round (a round added outside them widened them; narrowing back
+    // is only possible once that round is moved or deleted). Read before any write.
+    const datesChanged = startDate !== (current.startDate ?? null) || endDate !== (current.endDate ?? null);
+    if (datesChanged && (startDate || endDate)) {
+      const rounds = await tx.get(tournamentRef.collection('rounds'));
+      usage.read(rounds.size);
+      const outside = rounds.docs
+        .map((doc) => doc.data())
+        .filter((round) => (startDate && round.date < startDate) || (endDate && round.date > endDate))
+        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))[0];
+      if (outside) {
+        const label = outside.name ? `"${outside.name}"` : `Round ${outside.number}`;
+        throw new HttpsError(
+          'failed-precondition',
+          `${label} is on ${outside.date}, outside these dates. Move or delete that round first.`,
+        );
+      }
+    }
 
     const updates: Record<string, unknown> = { ...changes };
     let started = Boolean(current.startedAt);

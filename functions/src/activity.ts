@@ -37,6 +37,7 @@ export const ACTIVITY_TYPES = [
   'team_deleted',
   'round_created',
   'round_updated',
+  'round_deleted',
   'groups_changed',
   'tee_time_changed',
 ] as const;
@@ -64,6 +65,7 @@ export const CATEGORY_OF_TYPE: Record<ActivityType, ActivityCategory> = {
   player_removed: 'roster',
   round_created: 'changes',
   round_updated: 'changes',
+  round_deleted: 'changes',
   groups_changed: 'changes',
   // A published tee time moving is something every player needs to see.
   tee_time_changed: 'essentials',
@@ -85,6 +87,7 @@ export const ACTIVITY_DESCRIPTIONS: Record<ActivityType, string> = {
   team_deleted: 'A team was deleted.',
   round_created: 'A round was added to the tournament.',
   round_updated: "A round's settings changed, such as its course, holes, group size, scoring or skins.",
+  round_deleted: 'A round that had not been played was removed from the tournament.',
   groups_changed: "A round's groups were set or changed.",
   tee_time_changed: 'A tee time that was already published has moved. Check your group time.',
 };

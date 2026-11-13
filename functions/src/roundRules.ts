@@ -6,6 +6,7 @@ import {
   FORMAT_IDS,
   MAX_COURSE_NAME_LENGTH,
   MAX_GROUP_SIZE_CAP,
+  MAX_ROUND_NAME_LENGTH,
   MAX_TEES_LENGTH,
   MAX_WAGER_POT_AMOUNT,
 } from './limits';
@@ -87,6 +88,19 @@ export function cleanSkippedHoles(value: unknown, range: PlayRange): number[] {
   }
   if (holes.size >= range.last - range.first + 1) bad('at least one hole must stay in play');
   return [...holes].sort((a, b) => a - b);
+}
+
+// An optional label an organizer gives a round, like "Practice" or "Friday AM". Empty or absent means no name
+// (the app then shows its play-order label). Trimmed, and refused if too long or if it has control characters.
+export function cleanRoundName(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') return bad('name must be text');
+  const name = value.trim();
+  if (name.length === 0) return null;
+  if (name.length > MAX_ROUND_NAME_LENGTH) return bad(`name must be at most ${MAX_ROUND_NAME_LENGTH} characters`);
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(name)) return bad('name cannot contain control characters');
+  return name;
 }
 
 // ---- date, time zone and tee times -----------------------------------------------------------------

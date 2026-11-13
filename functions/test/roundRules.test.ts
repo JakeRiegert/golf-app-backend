@@ -8,6 +8,7 @@ import {
   cleanGroups,
   cleanHolesPlanned,
   cleanMaxGroupSize,
+  cleanRoundName,
   cleanScoring,
   cleanSkippedHoles,
   cleanSkins,
@@ -36,6 +37,23 @@ function invalid(fn: () => unknown, fragment?: string) {
 const holes = (count: number) =>
   Array.from({ length: count }, (_, i) => ({ par: 4, strokeIndex: i + 1, yards: 350 + i }));
 const course = (count = 18) => ({ name: 'Pebble Beach', tees: 'Blue', rating: 74.9, slope: 144, holes: holes(count) });
+
+describe('round name', () => {
+  it('trims, and treats empty or missing as no name', () => {
+    expect(cleanRoundName('  Friday AM ')).toBe('Friday AM');
+    expect(cleanRoundName('')).toBeNull();
+    expect(cleanRoundName('   ')).toBeNull();
+    expect(cleanRoundName(undefined)).toBeNull();
+    expect(cleanRoundName(null)).toBeNull();
+  });
+
+  it('allows exactly 40 characters and refuses 41, non-text and control characters', () => {
+    expect(cleanRoundName('x'.repeat(40))).toHaveLength(40);
+    invalid(() => cleanRoundName('x'.repeat(41)), '40');
+    invalid(() => cleanRoundName(5), 'text');
+    invalid(() => cleanRoundName('a\tb'), 'control');
+  });
+});
 
 describe('holes in play', () => {
   it('allows 9 or 18 holes only', () => {

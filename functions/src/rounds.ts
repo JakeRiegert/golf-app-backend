@@ -11,6 +11,7 @@ import {
   cleanFormats,
   cleanHolesPlanned,
   cleanMaxGroupSize,
+  cleanRoundName,
   cleanScoring,
   cleanSkippedHoles,
   cleanSkins,
@@ -44,6 +45,8 @@ export const ROUND_STATUS = {
 
 export interface RoundSettings {
   date?: string;
+  // An optional label like "Practice"; null or empty clears it.
+  name?: string | null;
   timeZone?: string | null;
   holesPlanned?: number;
   firstHole?: number;
@@ -69,7 +72,11 @@ export interface UpdateRoundInput extends RoundSettings {
 
 export interface RoundView {
   id: string;
+  // The order the rounds were added in. Fixed for the life of the round and never shown as a label: the app
+  // shows rounds by date and numbers them by position, so a round added later for an earlier day slots in
+  // without renaming the others. Use roundId to refer to a round.
   number: number;
+  name: string | null;
   date: string;
   timeZone: string | null;
   status: string;
@@ -86,6 +93,7 @@ export interface RoundView {
 
 const SETTING_KEYS = [
   'date',
+  'name',
   'timeZone',
   'holesPlanned',
   'firstHole',
@@ -109,6 +117,7 @@ function toView(id: string, data: DocumentData): RoundView {
   return {
     id,
     number: data.number,
+    name: data.name ?? null,
     date: data.date,
     timeZone: data.timeZone ?? null,
     status: data.status,
@@ -212,12 +221,14 @@ export async function createRound(
     const scoring = input.scoring === undefined ? DEFAULT_SCORING : cleanScoring(input.scoring);
     const skins = input.skins === undefined ? DEFAULT_SKINS : cleanSkins(input.skins);
     const timeZone = input.timeZone === undefined ? (tournament.timeZone ?? null) : cleanTimeZone(input.timeZone);
+    const name = cleanRoundName(input.name);
     const widen = neededDateExtension(tournament, date, input.extendTournamentDates === true);
 
     const number = existing.docs.reduce((highest, doc) => Math.max(highest, (doc.data().number as number) ?? 0), 0) + 1;
     const roundRef = roundsRef.doc();
     const data = {
       number,
+      name,
       date,
       timeZone,
       status: ROUND_STATUS.SCHEDULED,
@@ -246,7 +257,7 @@ export async function createRound(
       type: 'round_created',
       actorId: uid,
       level: announce(Boolean(tournament.startedAt), 'admins'),
-      data: { roundId: roundRef.id, number, date, courseName: course?.name ?? null },
+      data: { roundId: roundRef.id, number, name, date, courseName: course?.name ?? null },
     });
     return toView(roundRef.id, data);
   });
@@ -309,9 +320,11 @@ export async function updateRound(
     const skins = input.skins === undefined ? (current.skins as Skins) : cleanSkins(input.skins);
     const timeZone = input.timeZone === undefined ? (current.timeZone ?? null) : cleanTimeZone(input.timeZone);
     const date = newDate ?? (current.date as string);
+    const name = input.name === undefined ? ((current.name as string | null | undefined) ?? null) : cleanRoundName(input.name);
 
-    const next = { date, timeZone, holesPlanned, firstHole, maxGroupSize, skippedHoles, course, formats, scoring, skins };
+    const next = { name, date, timeZone, holesPlanned, firstHole, maxGroupSize, skippedHoles, course, formats, scoring, skins };
     const before = {
+      name: current.name ?? null,
       date: current.date,
       timeZone: current.timeZone ?? null,
       holesPlanned: current.holesPlanned,
@@ -384,15 +397,77 @@ export async function updateRound(
       actorId: uid,
       level: announce(Boolean(tournament.startedAt), 'admins'),
       changes,
-      data: { roundId, number: current.number },
+      data: { roundId, number: current.number, name },
     });
     return toView(roundId, { ...current, ...updates });
+  });
+}
+
+export interface DeleteRoundInput {
+  tournamentId?: string;
+  roundId?: string;
+}
+
+// Admin: remove a round that has not been played (a mistaken round, or a replaced one), together with its
+// groups. Only a round still 'scheduled' with no score on it can go; anything with scores is cancelled
+// instead (a later step), so a result is never deleted. Refused for an
+// unknown round. Players have already seen the groups and tee times, so the feed event goes to everyone when
+// the round had groups, and follows the usual before-Start rule otherwise.
+// NOTE for the score-entry step: this must also refuse when the round has any score submission, and delete
+// or refuse on any other per-round collection added later.
+export async function deleteRound(
+  db: Firestore,
+  uid: string,
+  input: DeleteRoundInput,
+  usage: UsageTracker,
+): Promise<{ roundId: string; deleted: true }> {
+  const tournamentId = requireTournamentId(input.tournamentId);
+  const roundId = requireId('roundId', input.roundId);
+  usage.forTournament(tournamentId);
+  const tournamentRef = db.collection('tournaments').doc(tournamentId);
+  const roundRef = tournamentRef.collection('rounds').doc(roundId);
+
+  return db.runTransaction(async (tx) => {
+    const tournament = await assertAdmin(tx, tournamentRef, uid, usage);
+    const snap = await tx.get(roundRef);
+    usage.read();
+    const current = snap.data();
+    if (!current) throw new HttpsError('not-found', 'Round not found in this tournament');
+    if (current.status !== ROUND_STATUS.SCHEDULED) {
+      throw new HttpsError('failed-precondition', `This round is ${current.status}, so it cannot be deleted`);
+    }
+    const scores = await tx.get(roundRef.collection('scores').limit(1));
+    usage.read(scores.size);
+    if (!scores.empty) {
+      throw new HttpsError('failed-precondition', 'A score has been entered, so this round cannot be deleted');
+    }
+    const groups = await tx.get(roundRef.collection('groups'));
+    usage.read(groups.size);
+
+    for (const group of groups.docs) {
+      tx.delete(group.ref);
+      usage.wrote();
+    }
+    tx.delete(roundRef);
+    usage.wrote();
+    logActivity(tx, tournamentRef, usage, {
+      type: 'round_deleted',
+      actorId: uid,
+      level: groups.empty ? announce(Boolean(tournament.startedAt), 'admins') : 'all',
+      data: { roundId, number: current.number, name: current.name ?? null, date: current.date },
+    });
+    return { roundId, deleted: true };
   });
 }
 
 export const createRoundCallable = callable<CreateRoundInput, RoundView>(
   'createRound',
   async (request, usage, uid) => createRound(getDb(), uid, request.data ?? {}, usage),
+);
+
+export const deleteRoundCallable = callable<DeleteRoundInput, { roundId: string; deleted: true }>(
+  'deleteRound',
+  async (request, usage, uid) => deleteRound(getDb(), uid, request.data ?? {}, usage),
 );
 
 export const updateRoundCallable = callable<UpdateRoundInput, RoundView>(

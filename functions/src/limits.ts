@@ -37,6 +37,7 @@ export const DEFAULT_GROUP_SIZE = 4;
 export const MAX_GROUPS_PER_ROUND = 100;
 export const MAX_COURSE_NAME_LENGTH = 100;
 export const MAX_TEES_LENGTH = 50;
+export const MAX_ROUND_NAME_LENGTH = 40;
 // Game formats a round may run. Stroke play (gross and net) is the first; others plug in later.
 export const FORMAT_IDS = ['strokePlay'] as const;
 
