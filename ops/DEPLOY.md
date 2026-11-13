@@ -50,6 +50,14 @@ Things the first deploys taught us (all invisible to the emulator tests):
   `roles/datastore.user` and `roles/logging.logWriter` only). The name comes from the
   `RUNTIME_SERVICE_ACCOUNT` setting in `functions/.env`; use a `.env.<alias>` file for another
   environment. The default Compute account has no Firestore permission on this project.
+- **Firestore-triggered functions (first one: `onSubmissionCreated`, deployed 2026-11-13).** Three things the
+  emulator cannot show. (1) The runtime account needs `roles/eventarc.eventReceiver` on the project. (2) It also
+  needs `roles/run.invoker` on that trigger's own Cloud Run service (`onsubmissioncreated`), or Eventarc's
+  deliveries are refused with "IAM principal lacks run.routes.invoke" (WARNING lines in the trigger's logs); the
+  service stays private, never `allUsers`. A new trigger needs this grant added by hand, like the public invoker
+  on a new callable. (3) IAM changes take a few minutes to propagate: the first create failed with "Permission
+  denied while using the Eventarc Service Agent" (just retry the deploy), and deliveries kept being retried (and
+  then succeeded) for about 4 minutes after the grant, so wait before judging a first run.
 - **Check after every deploy:** anonymous probes should still return 401, and a signed-in action
   should work; read the production logs for errors.
 
