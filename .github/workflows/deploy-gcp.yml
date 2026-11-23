@@ -114,7 +114,16 @@ jobs:
         env:
           TARGETS: ${{ steps.scope.outputs.targets }}
           PROJECT: ${{ vars.GCP_PROJECT_ID }}
-        run: npx --prefix functions firebase deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
+        run: |
+          set +e
+          npx --prefix functions firebase deploy --only "$TARGETS" --project "$PROJECT" --non-interactive 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          CODE=${PIPESTATUS[0]}
+          if [ "$CODE" -ne 0 ]; then
+            # Put the end of the log where it can be read without a login (job logs need one): in the run's annotations.
+            TAIL=$(tail -n 25 "$RUNNER_TEMP/deploy.log" | sed 's/\x1b\[[0-9;]*m//g' | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
+            echo "::error title=firebase deploy failed::$TAIL"
+          fi
+          exit $CODE
 
       # Public access for every callable (the deploy does not set it) and an anonymous 401 probe of each.
       - name: Grant public access and probe every callable
