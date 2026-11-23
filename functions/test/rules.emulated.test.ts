@@ -75,6 +75,9 @@ beforeEach(async () => {
       const round = doc(db, 'tournaments', tid, 'rounds', 'r1');
       await setDoc(round, { number: 1, status: 'scheduled' });
       await setDoc(doc(round, 'groups', 'g1'), { order: 1, playerIds: ['mem'], teeHole: 1 });
+      // Tee picks and check-in for two players (a member, and someone else).
+      await setDoc(doc(round, 'roundPlayers', 'mem'), { playerId: 'mem', teeId: 't1', table: 'men', checkedIn: true });
+      await setDoc(doc(round, 'roundPlayers', 'other'), { playerId: 'other', teeId: 't2', table: 'women', checkedIn: false });
       for (const [sub, id] of [['scores', 's1'], ['disputes', 'd1'], ['cards', 'c1']]) {
         await setDoc(doc(round, sub, id), { playerId: 'mem', hole: 1 });
       }
@@ -284,6 +287,23 @@ describe('the score inbox (submissions) and official scores', () => {
     await assertFails(getDoc(doc(as('stranger'), ...subs('t1', 'sub1'))));
     await assertFails(getDoc(doc(as('stranger'), ...subs('t2', 'sub1')))); // spectators of a public tournament too
     await assertFails(getDoc(doc(anon(), ...subs('t1', 'sub1'))));
+  });
+
+  it('tee picks and check-in: members and admins read everyone\'s; spectators, strangers and signed-out users cannot; nobody writes', async () => {
+    const pick = (tid: string, id: string) => ['tournaments', tid, 'rounds', 'r1', 'roundPlayers', id] as const;
+    await assertSucceeds(getDoc(doc(as('mem'), ...pick('t1', 'other')))); // a member sees who else is checked in
+    await assertSucceeds(getDocs(collection(as('mem'), 'tournaments', 't1', 'rounds', 'r1', 'roundPlayers')));
+    await assertSucceeds(getDocs(collection(as('org'), 'tournaments', 't1', 'rounds', 'r1', 'roundPlayers')));
+    await assertSucceeds(getDocs(collection(as('co'), 'tournaments', 't1', 'rounds', 'r1', 'roundPlayers')));
+    await assertFails(getDoc(doc(as('stranger'), ...pick('t1', 'mem'))));
+    await assertFails(getDocs(collection(as('stranger'), 'tournaments', 't2', 'rounds', 'r1', 'roundPlayers'))); // public: spectators do not
+    await assertFails(getDocs(collection(anon(), 'tournaments', 't1', 'rounds', 'r1', 'roundPlayers')));
+    await assertFails(getDocs(collection(as('mem'), 'tournaments', 't3', 'rounds', 'r1', 'roundPlayers'))); // suspended
+    for (const uid of ['mem', 'org']) {
+      await assertFails(setDoc(doc(as(uid), ...pick('t1', 'new')), { playerId: 'new', teeId: 't1', checkedIn: true }));
+      await assertFails(updateDoc(doc(as(uid), ...pick('t1', 'mem')), { checkedIn: false }));
+      await assertFails(deleteDoc(doc(as(uid), ...pick('t1', 'mem'))));
+    }
   });
 
   it('official scores: members and admins read them; spectators, strangers and signed-out users cannot; nobody writes', async () => {

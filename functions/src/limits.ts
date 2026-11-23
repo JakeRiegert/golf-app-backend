@@ -37,6 +37,9 @@ export const DEFAULT_GROUP_SIZE = 4;
 export const MAX_GROUPS_PER_ROUND = 100;
 export const MAX_COURSE_NAME_LENGTH = 100;
 export const MAX_TEES_LENGTH = 50;
+// Tee sets on one course (tips, blue, white, gold, red...), and how many players one setRoundPlayers call may change.
+export const MAX_TEE_SETS = 8;
+export const MAX_ROUND_PLAYER_EDITS = 100;
 export const MAX_ROUND_NAME_LENGTH = 40;
 // The most strokes one hole can show, as a sanity bound for any score entry (a no-maximum format still needs
 // room for a 14 or a 25; the round's own maximum, double par by default, is tighter). Also in firestore.rules.

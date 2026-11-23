@@ -41,6 +41,7 @@ export const ACTIVITY_TYPES = [
   'round_started',
   'groups_changed',
   'tee_time_changed',
+  'round_players_changed',
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
@@ -71,6 +72,7 @@ export const CATEGORY_OF_TYPE: Record<ActivityType, ActivityCategory> = {
   groups_changed: 'changes',
   // A published tee time moving is something every player needs to see.
   tee_time_changed: 'essentials',
+  round_players_changed: 'changes',
 };
 
 // What each kind of event means, in plain words for the feed and the help pages. A test fails if a type
@@ -93,6 +95,7 @@ export const ACTIVITY_DESCRIPTIONS: Record<ActivityType, string> = {
   round_started: 'A round started. Scores can now be entered, and the handicaps used for the round are fixed.',
   groups_changed: "A round's groups were set or changed.",
   tee_time_changed: 'A tee time that was already published has moved. Check your group time.',
+  round_players_changed: "An organizer set players' tees or check-in for a round. On a live round, check which tee you are playing.",
 };
 
 export interface ActivityInput {

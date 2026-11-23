@@ -7,6 +7,7 @@ import { getDb } from './firestore';
 import { DEFAULT_GROUP_SIZE, MAX_ROUNDS_PER_TOURNAMENT } from './limits';
 import {
   cleanCourse,
+  cleanDefaultTee,
   cleanFirstHole,
   cleanFormats,
   cleanHolesPlanned,
@@ -53,6 +54,8 @@ export interface RoundSettings {
   maxGroupSize?: number;
   skippedHoles?: number[];
   course?: Course | null;
+  // The tee players are offered first at check-in (one of the course's tee ids). Defaults to the course's first tee.
+  defaultTeeId?: string | null;
   formats?: RoundFormat[];
   scoring?: Partial<Scoring>;
   skins?: Partial<Skins>;
@@ -86,6 +89,7 @@ export interface RoundView {
   skippedHoles: number[];
   course: Course | null;
   courseSource: string | null;
+  defaultTeeId: string | null;
   formats: RoundFormat[];
   scoring: Scoring;
   skins: Skins;
@@ -100,6 +104,7 @@ const SETTING_KEYS = [
   'maxGroupSize',
   'skippedHoles',
   'course',
+  'defaultTeeId',
   'formats',
   'scoring',
   'skins',
@@ -127,6 +132,7 @@ function toView(id: string, data: DocumentData): RoundView {
     skippedHoles: data.skippedHoles ?? [],
     course: data.course ?? null,
     courseSource: data.courseSource ?? null,
+    defaultTeeId: data.defaultTeeId ?? null,
     formats: data.formats,
     scoring: data.scoring,
     skins: data.skins,
@@ -217,6 +223,7 @@ export async function createRound(
     const maxGroupSize = cleanMaxGroupSize(input.maxGroupSize ?? tournament.defaultMaxGroupSize ?? DEFAULT_GROUP_SIZE);
     const skippedHoles = input.skippedHoles === undefined ? [] : cleanSkippedHoles(input.skippedHoles, range);
     const course = input.course === undefined ? null : cleanCourse(input.course, range);
+    const defaultTeeId = cleanDefaultTee(input.defaultTeeId, course, input.defaultTeeId !== undefined);
     const formats = input.formats === undefined ? DEFAULT_FORMATS : cleanFormats(input.formats);
     const defaultScoring = (tournament.defaultScoring as Scoring | null | undefined) ?? DEFAULT_SCORING;
     const scoring = input.scoring === undefined ? defaultScoring : cleanScoring(input.scoring, defaultScoring);
@@ -241,6 +248,7 @@ export async function createRound(
       courseSource: course ? 'manual' : null,
       courseVerifiedAt: null,
       courseVerifiedBy: null,
+      defaultTeeId,
       formats,
       scoring,
       skins,
@@ -316,6 +324,13 @@ export async function updateRound(
     // leave a skipped hole or the course pointing at holes the round no longer plays.
     const skippedHoles = cleanSkippedHoles(input.skippedHoles === undefined ? (current.skippedHoles ?? []) : input.skippedHoles, range);
     const course = cleanCourse(input.course === undefined ? (current.course ?? null) : input.course, range);
+    // A default tee given explicitly must exist on the course; otherwise the current one is kept while it is still
+    // valid, and falls back to the course's first tee (so changing the course never leaves a dangling default).
+    const defaultTeeId = cleanDefaultTee(
+      input.defaultTeeId === undefined ? (current.defaultTeeId ?? null) : input.defaultTeeId,
+      course,
+      input.defaultTeeId !== undefined,
+    );
     const formats = input.formats === undefined ? (current.formats as RoundFormat[]) : cleanFormats(input.formats);
     const scoring = input.scoring === undefined ? (current.scoring as Scoring) : cleanScoring(input.scoring, current.scoring as Scoring);
     const skins = input.skins === undefined ? (current.skins as Skins) : cleanSkins(input.skins);
@@ -323,7 +338,7 @@ export async function updateRound(
     const date = newDate ?? (current.date as string);
     const name = input.name === undefined ? ((current.name as string | null | undefined) ?? null) : cleanRoundName(input.name);
 
-    const next = { name, date, timeZone, holesPlanned, firstHole, maxGroupSize, skippedHoles, course, formats, scoring, skins };
+    const next = { name, date, timeZone, holesPlanned, firstHole, maxGroupSize, skippedHoles, course, defaultTeeId, formats, scoring, skins };
     const before = {
       name: current.name ?? null,
       date: current.date,
@@ -332,7 +347,9 @@ export async function updateRound(
       firstHole: current.firstHole,
       maxGroupSize: current.maxGroupSize,
       skippedHoles: current.skippedHoles ?? [],
-      course: current.course ?? null,
+      // Normalized, so a course stored in the older single-tee shape compares equal to the same course re-read.
+      course: current.course ? cleanCourse(current.course, { first: 1, last: 1 }) : null,
+      defaultTeeId: current.defaultTeeId ?? null,
       formats: current.formats,
       scoring: current.scoring,
       skins: current.skins,
@@ -370,6 +387,14 @@ export async function updateRound(
         }
       }
     }
+    // A new course may no longer have a tee a player picked: those picks are cleared (the player picks again).
+    let staleTees: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+    if (changed.includes('course')) {
+      const picks = await tx.get(roundRef.collection('roundPlayers'));
+      usage.read(picks.size);
+      const valid = new Set((course?.tees ?? []).map((tee) => tee.id));
+      staleTees = picks.docs.filter((doc) => typeof doc.data().teeId === 'string' && !valid.has(doc.data().teeId as string));
+    }
     const widen = changed.includes('date')
       ? neededDateExtension(tournament, date, input.extendTournamentDates === true)
       : null;
@@ -384,6 +409,10 @@ export async function updateRound(
     }
     tx.update(roundRef, updates);
     usage.wrote();
+    for (const doc of staleTees) {
+      tx.update(doc.ref, { teeId: null, updatedAt: FieldValue.serverTimestamp() });
+      usage.wrote();
+    }
     if (widen) applyDateExtension(tx, tournamentRef, tournament, widen, uid, usage);
 
     const changes: Record<string, { from: unknown; to: unknown }> = {};
@@ -398,7 +427,12 @@ export async function updateRound(
       actorId: uid,
       level: announce(Boolean(tournament.startedAt), 'admins'),
       changes,
-      data: { roundId, number: current.number, name },
+      data: {
+        roundId,
+        number: current.number,
+        name,
+        ...(staleTees.length > 0 ? { teePicksCleared: staleTees.length } : {}),
+      },
     });
     return toView(roundId, { ...current, ...updates });
   });
@@ -450,9 +484,16 @@ export async function deleteRound(
     }
     const groups = await tx.get(roundRef.collection('groups'));
     usage.read(groups.size);
+    // Tee picks and check-ins belong to the round too.
+    const picks = await tx.get(roundRef.collection('roundPlayers'));
+    usage.read(picks.size);
 
     for (const group of groups.docs) {
       tx.delete(group.ref);
+      usage.wrote();
+    }
+    for (const pick of picks.docs) {
+      tx.delete(pick.ref);
       usage.wrote();
     }
     tx.delete(roundRef);

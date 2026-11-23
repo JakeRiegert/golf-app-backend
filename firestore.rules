@@ -113,6 +113,15 @@ service cloud.firestore {
           allow write: if false;
         }
 
+        // Tee picks and check-in, one document per player per round. Roster members and admins read them (who is
+        // checked in, which tee each player plays); spectators do not. Written only by setRoundPlayers. Named
+        // roundPlayers, not players, on purpose: a subcollection called players would be swept into the
+        // collection-group "my tournaments" query on roster entries.
+        match /roundPlayers/{pid} {
+          allow read: if canViewPrivate(tid);
+          allow write: if false;
+        }
+
         // The score inbox. A phone writes a submission (through Firestore's offline queue); a function checks it
         // and writes the official score, or marks the submission rejected with a reason the phone shows. Clients
         // can only CREATE one, and only with exactly these fields: the outcome fields (outcome, reason,

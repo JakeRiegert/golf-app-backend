@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   cleanCourse,
+  cleanDefaultTee,
   cleanFirstHole,
   cleanFormats,
   cleanGroups,
   cleanHolesPlanned,
   cleanMaxGroupSize,
+  cleanRatingTable,
   cleanRoundName,
   cleanScoring,
   cleanSkippedHoles,
@@ -15,6 +17,7 @@ import {
   cleanTeeTime,
   cleanTimeZone,
   courseSummary,
+  parForTable,
   playRange,
   sameValue,
   stableStringify,
@@ -37,6 +40,29 @@ function invalid(fn: () => unknown, fragment?: string) {
 const holes = (count: number) =>
   Array.from({ length: count }, (_, i) => ({ par: 4, strokeIndex: i + 1, yards: 350 + i }));
 const course = (count = 18) => ({ name: 'Pebble Beach', tees: 'Blue', rating: 74.9, slope: 144, holes: holes(count) });
+
+// A course in the tee-set shape: two tees, men's and women's rankings, and a hole where the women's par differs.
+function multiTee() {
+  return {
+    name: 'Four Bridges',
+    holes: Array.from({ length: 18 }, (_, i) => ({
+      par: i === 2 ? 3 : 4,
+      parWomen: i === 2 || i === 0 ? 4 : null,
+      strokeIndex: i + 1,
+      strokeIndexWomen: ((i * 7) % 18) + 1,
+    })) as { par: number; parWomen: number | null; strokeIndex: number; strokeIndexWomen?: number }[],
+    tees: [
+      { name: 'Black', yards: Array.from({ length: 18 }, (_, i) => 333 + i) as (number | null)[], men: null as { rating: number; slope: number } | null, women: null as { rating: number; slope: number } | null },
+      {
+        id: 'blue',
+        name: 'Blue',
+        yards: Array(18).fill(330) as (number | null)[],
+        men: { rating: 71.2, slope: 128 } as { rating: number; slope: number } | null,
+        women: { rating: 76.4, slope: 130 } as { rating: number; slope: number } | null,
+      },
+    ] as { id?: string; name: string; yards: (number | null)[]; men: { rating: number; slope: number } | null; women: { rating: number; slope: number } | null }[],
+  };
+}
 
 describe('round name', () => {
   it('trims, and treats empty or missing as no name', () => {
@@ -121,13 +147,81 @@ describe('course snapshot', () => {
     const cleaned = cleanCourse({ ...course(), name: '  Pebble Beach ' }, playRange(1, 18));
     expect(cleaned?.name).toBe('Pebble Beach');
     expect(cleaned?.holes).toHaveLength(18);
-    expect(cleaned?.rating).toBe(74.9);
+    // The older single-tee spelling becomes one tee set.
+    expect(cleaned?.tees).toHaveLength(1);
+    expect(cleaned?.tees[0]).toMatchObject({ id: 't1', name: 'Blue', men: { rating: 74.9, slope: 144 }, women: null });
+    expect(cleaned?.tees[0].yards[0]).toBe(350);
   });
 
   it('lets rating, slope, tees and yards be missing', () => {
     const cleaned = cleanCourse({ name: 'Muni', holes: holes(18).map(({ par, strokeIndex }) => ({ par, strokeIndex })) }, playRange(1, 18));
-    expect(cleaned).toMatchObject({ tees: null, rating: null, slope: null });
-    expect(cleaned?.holes[0].yards).toBeNull();
+    expect(cleaned).toMatchObject({ tees: [] });
+    expect(cleaned?.holes[0]).toEqual({ par: 4, parWomen: null, strokeIndex: 1, strokeIndexWomen: null });
+  });
+
+  it('stores tee sets with their own yards, and ratings for men and for women', () => {
+    const cleaned = cleanCourse(multiTee(), playRange(1, 18));
+    expect(cleaned?.tees.map((tee) => tee.name)).toEqual(['Black', 'Blue']);
+    expect(cleaned?.tees.map((tee) => tee.id)).toEqual(['t1', 'blue']);
+    expect(cleaned?.tees[0].yards[17]).toBe(350);
+    expect(cleaned?.tees[1]).toMatchObject({ men: { rating: 71.2, slope: 128 }, women: { rating: 76.4, slope: 130 } });
+    expect(cleaned?.holes[2]).toMatchObject({ par: 3, parWomen: 4, strokeIndex: 3, strokeIndexWomen: 15 });
+  });
+
+  it('refuses a women hole ranking that is partial or repeats a number', () => {
+    const partial = multiTee();
+    delete (partial.holes[5] as { strokeIndexWomen?: number }).strokeIndexWomen;
+    invalid(() => cleanCourse(partial, playRange(1, 18)), 'every hole or for none');
+    const repeated = multiTee();
+    repeated.holes[0].strokeIndexWomen = 2;
+    invalid(() => cleanCourse(repeated, playRange(1, 18)), 'strokeIndexWomen');
+  });
+
+  it('checks tee sets: names, ids, yards length, ratings, count, and mixing the two spellings', () => {
+    const dup = multiTee();
+    dup.tees[1].name = 'black';
+    invalid(() => cleanCourse(dup, playRange(1, 18)), 'already named');
+    const sameId = multiTee();
+    sameId.tees[1].id = 't1';
+    invalid(() => cleanCourse(sameId, playRange(1, 18)), 'used twice');
+    const short = multiTee();
+    short.tees[0].yards = short.tees[0].yards.slice(0, 17);
+    invalid(() => cleanCourse(short, playRange(1, 18)), 'must list 18 holes');
+    const badYards = multiTee();
+    badYards.tees[0].yards[3] = 5000;
+    invalid(() => cleanCourse(badYards, playRange(1, 18)), 'hole 4: yards');
+    const badRating = multiTee();
+    badRating.tees[1].women = { rating: 20, slope: 130 };
+    invalid(() => cleanCourse(badRating, playRange(1, 18)), 'rating');
+    const badSlope = multiTee();
+    badSlope.tees[1].men = { rating: 71, slope: 300 };
+    invalid(() => cleanCourse(badSlope, playRange(1, 18)), 'slope');
+    const tooMany = multiTee();
+    tooMany.tees = Array.from({ length: 9 }, (_, i) => ({ id: `x${i}`, name: `T${i}`, yards: Array(18).fill(300), men: null, women: null }));
+    invalid(() => cleanCourse(tooMany, playRange(1, 18)), 'at most 8');
+    invalid(() => cleanCourse({ ...multiTee(), rating: 71 }, playRange(1, 18)), 'inside each tee set');
+    invalid(() => cleanCourse({ ...multiTee(), tees: 5 }, playRange(1, 18)), 'course.tees');
+    invalid(() => cleanCourse({ ...multiTee(), tees: [{ name: 'A', colour: 'x' }] }, playRange(1, 18)), 'colour');
+  });
+
+  it('gives each hole the par for the table a player plays', () => {
+    const cleaned = cleanCourse(multiTee(), playRange(1, 18))!;
+    expect(parForTable(cleaned, 3, 'men')).toBe(3);
+    expect(parForTable(cleaned, 3, 'women')).toBe(4);
+    expect(parForTable(cleaned, 1, 'women')).toBe(4);
+    expect(parForTable(cleaned, 19, 'men')).toBeNull();
+    expect(cleanRatingTable('women')).toBe('women');
+    invalid(() => cleanRatingTable('both'), 'men');
+  });
+
+  it('picks the default tee: explicit must exist, otherwise falls back to the first', () => {
+    const cleaned = cleanCourse(multiTee(), playRange(1, 18))!;
+    expect(cleanDefaultTee('blue', cleaned, true)).toBe('blue');
+    expect(cleanDefaultTee(undefined, cleaned, false)).toBe('t1');
+    expect(cleanDefaultTee('gone', cleaned, false)).toBe('t1');
+    invalid(() => cleanDefaultTee('gone', cleaned, true), 'not one of');
+    expect(cleanDefaultTee(undefined, null, false)).toBeNull();
+    invalid(() => cleanDefaultTee('blue', null, true), 'no tee sets');
   });
 
   it('null clears the course', () => {
