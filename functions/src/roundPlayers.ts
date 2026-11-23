@@ -12,7 +12,7 @@ import { callable, UsageTracker } from './usage';
 // Tee picks and check-in, per player per round (docs/rounds-data-model.md, section 2.1c).
 //   tournaments/{id}/rounds/{roundId}/roundPlayers/{playerId}
 //     playerId, teeId (one of the course's tee ids, or null), table ('men' | 'women' | null: which rating table and
-//     hole-ranking row the player plays by), checkedIn, checkedInAt, setBy, updatedAt
+//     hole-ranking row the player plays by), checkedIn, checkedInAt, checkedInBy (the player or an admin), setBy, updatedAt
 // Written only here (clients read them, security rules: roster members and admins). A player sets their own tee and
 // checks themselves in; an organizer or co-admin can do the same for anyone, ahead of time or on the day. Choosing a
 // tee is NOT checking in: an organizer can pre-set everyone's tee and still see who has actually turned up.
@@ -124,8 +124,17 @@ export async function setRoundPlayers(
     usage.read();
     const round = roundSnap.data();
     if (!round) throw new HttpsError('not-found', 'Round not found in this tournament');
-    if (round.status !== ROUND_STATUS.SCHEDULED && round.status !== ROUND_STATUS.LIVE) {
-      throw new HttpsError('failed-precondition', `This round is ${round.status}; tees and check-in can no longer be changed`);
+    // Check-in is a record for the organizer, never a gate: players change theirs while the round is scheduled or live,
+    // but an organizer can still fill it in afterwards (a player who hands in a card and leaves the rest to them) on
+    // any round that has not been cancelled.
+    const open = round.status === ROUND_STATUS.SCHEDULED || round.status === ROUND_STATUS.LIVE;
+    if (!open && !(admin && round.status !== ROUND_STATUS.CANCELLED)) {
+      throw new HttpsError(
+        'failed-precondition',
+        admin
+          ? `This round is ${round.status}; tees and check-in can no longer be changed`
+          : `This round is ${round.status}; only the organizer can change tees and check-in now`,
+      );
     }
     const course = (round.course as Course | null) ?? null;
     const tees = Array.isArray(course?.tees) ? course!.tees : [];
@@ -199,6 +208,9 @@ export async function setRoundPlayers(
         table: state.table,
         checkedIn: state.checkedIn,
         checkedInAt: state.checkedIn ? (item.checkInChanged ? FieldValue.serverTimestamp() : (old?.checkedInAt ?? FieldValue.serverTimestamp())) : null,
+        // Who completed the check-in: the player themselves, or the organizer on their behalf (shown differently to
+        // admins; it changes no rules). Kept while the check-in stands, cleared when it is undone.
+        checkedInBy: state.checkedIn ? (item.checkInChanged ? uid : ((old?.checkedInBy as string | undefined) ?? uid)) : null,
         setBy: uid,
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -216,7 +228,7 @@ export async function setRoundPlayers(
         type: 'round_players_changed',
         actorId: uid,
         targetPlayerId: forOthers.length === 1 ? forOthers[0].edit.playerId : null,
-        level: teesChanged > 0 && round.status === ROUND_STATUS.LIVE ? 'all' : 'admins',
+        level: teesChanged > 0 && round.status !== ROUND_STATUS.SCHEDULED ? 'all' : 'admins',
         data: {
           roundId,
           number: round.number,

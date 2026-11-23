@@ -93,8 +93,9 @@ describe('the course and the default tee', () => {
     expect(view.defaultTeeId).toBe('blue');
     expect((await pickRef(tid, rid, 'p1').get()).data()!.teeId).toBeNull();
     expect((await pickRef(tid, rid, 'p2').get()).data()!.teeId).toBe('blue');
-    const [event] = await feedOf(tid, 'round_updated');
-    expect(event.data.teePicksCleared).toBe(1);
+    // Two updates happened (the default tee, then the course); the feed has no fixed order here, so find the course one.
+    const events = await feedOf(tid, 'round_updated');
+    expect(events.find((e) => e.data.teePicksCleared !== undefined)?.data.teePicksCleared).toBe(1);
   });
 });
 
@@ -188,11 +189,20 @@ describe('a player choosing their own tee and checking in', () => {
     await call('p1', tid, rid, [{ checkedIn: true }]);
   });
 
-  it('refuses a finished round', async () => {
+  it('refuses a finished round, saying that only the organizer can change it now', async () => {
     const { tid, rid } = await setup();
     await roundRef(tid, rid).update({ status: 'finalized' });
     const err = await rejection(call('p1', tid, rid, [{ teeId: 'blue' }]));
     expect(err.code).toBe('failed-precondition');
+    expect(err.message).toContain('only the organizer');
+  });
+
+  it('records themselves as the one who checked them in', async () => {
+    const { tid, rid } = await setup();
+    await call('p1', tid, rid, [{ checkedIn: true, table: 'men' }]);
+    expect((await pickRef(tid, rid, 'p1').get()).data()).toMatchObject({ checkedIn: true, checkedInBy: 'p1' });
+    await call('p1', tid, rid, [{ checkedIn: false }]);
+    expect((await pickRef(tid, rid, 'p1').get()).data()).toMatchObject({ checkedIn: false, checkedInBy: null });
   });
 });
 
@@ -225,6 +235,32 @@ describe('the organizer setting tees and check-in for others', () => {
     const [event] = await feedOf(tid, 'round_players_changed');
     expect(event.targetPlayerId).toBe('p2');
     expect(event.data.checkInsChanged).toBe(1);
+  });
+
+  it('marks a check-in done for the player as the organizer\'s, and keeps that when only the tee changes later', async () => {
+    const { tid, rid } = await setup();
+    await call('org1', tid, rid, [{ playerId: 'p2', checkedIn: true, teeId: 'blue', table: 'women' }]);
+    expect((await pickRef(tid, rid, 'p2').get()).data()).toMatchObject({ checkedIn: true, checkedInBy: 'org1' });
+    await call('p2', tid, rid, [{ teeId: 'white' }]);
+    expect((await pickRef(tid, rid, 'p2').get()).data()).toMatchObject({ teeId: 'white', checkedInBy: 'org1' });
+    // Undoing it clears who did it; the player checking in again takes it over.
+    await call('org1', tid, rid, [{ playerId: 'p2', checkedIn: false }]);
+    expect((await pickRef(tid, rid, 'p2').get()).data()).toMatchObject({ checkedIn: false, checkedInBy: null });
+    await call('p2', tid, rid, [{ checkedIn: true }]);
+    expect((await pickRef(tid, rid, 'p2').get()).data()).toMatchObject({ checkedIn: true, checkedInBy: 'p2' });
+  });
+
+  it('can still fill in check-in after the round is finished, but not on a cancelled round', async () => {
+    const { tid, rid } = await setup();
+    await roundRef(tid, rid).update({ status: 'finalized', number: 1 });
+    // The player handed in a card and left; the organizer completes the record afterwards.
+    await call('org1', tid, rid, [{ playerId: 'p3', checkedIn: true, teeId: 'black', table: 'men' }]);
+    expect((await pickRef(tid, rid, 'p3').get()).data()).toMatchObject({ checkedIn: true, checkedInBy: 'org1', teeId: 'black' });
+    // A tee set or changed after play began is shown to everyone, since it changes what the scores mean.
+    await call('org1', tid, rid, [{ playerId: 'p3', teeId: 'blue' }]);
+    expect((await feedOf(tid, 'round_players_changed')).map((e) => e.level)).toEqual(['all', 'all']);    await roundRef(tid, rid).update({ status: 'cancelled' });
+    const err = await rejection(call('org1', tid, rid, [{ playerId: 'p3', checkedIn: false }]));
+    expect(err.code).toBe('failed-precondition');
   });
 
   it('does everything or nothing: one bad entry changes no one', async () => {

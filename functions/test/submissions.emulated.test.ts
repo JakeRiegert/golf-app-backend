@@ -88,6 +88,19 @@ describe('accepting a score', () => {
     expect(sub.reason).toBeUndefined();
   });
 
+  it('never depends on check-in: players nobody checked in score and start the round as usual', async () => {
+    const { tid, rid, g1 } = await setup();
+    // p1 has only a pre-set tee (not checked in); p2 has no entry at all.
+    await db.collection('tournaments').doc(tid).collection('rounds').doc(rid).collection('roundPlayers').doc('p1').set({
+      playerId: 'p1', teeId: null, table: null, checkedIn: false, checkedInAt: null, checkedInBy: null,
+    });
+    const a = await submit(tid, rid, { playerId: 'p1', hole: 1, strokes: 4, groupId: g1, enteredBy: 'p1' });
+    const b = await submit(tid, rid, { playerId: 'p2', hole: 1, strokes: 5, groupId: g1, enteredBy: 'p1' });
+    expect(a.result).toMatchObject({ decision: { outcome: 'accepted' } });
+    expect(b.result).toMatchObject({ decision: { outcome: 'accepted' } });
+    expect((await roundDoc(tid, rid)).status).toBe('live');
+  });
+
   it('a pickup is recorded as a pickup', async () => {
     const { tid, rid, g1 } = await setup();
     await submit(tid, rid, { playerId: 'p1', hole: 3, strokes: 8, kind: 'pickup', groupId: g1, enteredBy: 'p1' });
