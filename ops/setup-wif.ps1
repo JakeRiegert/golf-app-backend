@@ -15,7 +15,9 @@
 param(
   [string]$Project = 'golf-live-scoring-app-510200',
   [string]$OwnerId = '41297707',     # GitHub user JakeRiegert
-  [string]$RepoId  = '1389607136'    # JakeRiegert/golf-app-backend
+  # Numeric IDs of the repositories allowed to deploy: golf-app-backend (functions, rules) and
+  # golf-app-client (Hosting). The client was added 2026-11-23.
+  [string[]]$RepoIds = @('1389607136', '1389610512')
 )
 
 function Step($text) { Write-Host "`n== $text" -ForegroundColor Cyan }
@@ -37,12 +39,15 @@ if (Exists { gcloud iam workload-identity-pools describe github --location=globa
   gcloud iam workload-identity-pools create github --project=$Project --location=global --display-name='GitHub Actions'
 }
 
-Step 'Provider "github-actions" (trusts only this repository, by numeric ID)'
+Step 'Provider "github-actions" (trusts only the listed repositories, by numeric ID)'
+$mapping   = 'google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id'
+$repoTests = ($RepoIds | ForEach-Object { "assertion.repository_id=='$_'" }) -join ' || '
+$condition = "assertion.repository_owner_id=='$OwnerId' && ($repoTests)"
 if (Exists { gcloud iam workload-identity-pools providers describe github-actions --workload-identity-pool=github --location=global --project=$Project }) {
-  Write-Host 'already exists'
+  # Re-applied every run so that adding a repository ID above takes effect.
+  gcloud iam workload-identity-pools providers update-oidc github-actions --project=$Project --location=global `
+    --workload-identity-pool=github --attribute-condition=$condition
 } else {
-  $mapping   = 'google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id'
-  $condition = "assertion.repository_owner_id=='$OwnerId' && assertion.repository_id=='$RepoId'"
   gcloud iam workload-identity-pools providers create-oidc github-actions --project=$Project --location=global `
     --workload-identity-pool=github --issuer-uri='https://token.actions.githubusercontent.com' `
     --attribute-mapping=$mapping --attribute-condition=$condition
@@ -73,14 +78,16 @@ Step 'Let github-deployer sign custom tokens as itself (the smoke test signs thr
 gcloud iam service-accounts add-iam-policy-binding $deployer --project=$Project --member="serviceAccount:$deployer" --role=roles/iam.serviceAccountTokenCreator --quiet | Out-Null
 Write-Host "may sign tokens as $deployer"
 
-Step 'Let GitHub (this repository only) impersonate github-deployer'
-$principal = "principalSet://iam.googleapis.com/projects/$number/locations/global/workloadIdentityPools/github/attribute.repository_id/$RepoId"
-gcloud iam service-accounts add-iam-policy-binding $deployer --project=$Project --role=roles/iam.workloadIdentityUser --member=$principal --quiet | Out-Null
-Write-Host "bound $principal"
+Step 'Let GitHub (the listed repositories only) impersonate github-deployer'
+foreach ($repoId in $RepoIds) {
+  $principal = "principalSet://iam.googleapis.com/projects/$number/locations/global/workloadIdentityPools/github/attribute.repository_id/$repoId"
+  gcloud iam service-accounts add-iam-policy-binding $deployer --project=$Project --role=roles/iam.workloadIdentityUser --member=$principal --quiet | Out-Null
+  Write-Host "bound $principal"
+}
 
 Write-Host "`n=================================================================" -ForegroundColor Green
-Write-Host 'Done. In GitHub, repo golf-app-backend > Settings > Secrets and variables > Actions >'
-Write-Host 'Variables, add these three REPOSITORY VARIABLES (not secrets):'
+Write-Host 'Done. In GitHub, in BOTH repos (golf-app-backend and golf-app-client) > Settings > Secrets and'
+Write-Host 'variables > Actions > Variables, add these REPOSITORY VARIABLES (not secrets):'
 Write-Host "  GCP_PROJECT_ID       $Project"
 Write-Host "  WIF_PROVIDER         projects/$number/locations/global/workloadIdentityPools/github/providers/github-actions"
 Write-Host "  WIF_SERVICE_ACCOUNT  $deployer"

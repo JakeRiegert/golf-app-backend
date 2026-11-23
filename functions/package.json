@@ -13,6 +13,7 @@
     "test:emulated": "firebase emulators:exec --config ../firebase.test.json --only firestore --project demo-golf-rules \"vitest run .emulated.\"",
     "test:changed": "node scripts/test-changed.mjs",
     "smoke": "node scripts/smoke.mjs",
+    "post-deploy": "node scripts/post-deploy.mjs",
     "smoke:emulated": "npm run build && firebase emulators:exec --config ../firebase.test.json --only auth,functions,firestore --project demo-golf-http \"node scripts/smoke.mjs\"",
     "affected": "node scripts/affected.mjs"
   },

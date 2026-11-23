@@ -1,7 +1,10 @@
 # Deploying to Google Cloud
 
-Status (2026-10-28): the project is live. Steps 1-3 are done and the functions are deployed by hand;
-step 4 (deploying from GitHub with no stored key) is next.
+Status (2026-11-23): the project is live. **Pushing to `main` is the deploy** (section 4): CI runs every test,
+then `deploy-gcp.yml` deploys what changed, makes new callables public, probes them anonymously, runs a smoke test and
+records what is live; `golf-app-client` then deploys its Hosting site (it waits for the backend). Deploying by hand
+(section 3) is the fallback. The pipeline is switched on once the GitHub repository variables in section 4 exist (until
+then its jobs are skipped); it has not yet run for real.
 
 Project: `golf-live-scoring-app-510200` (number `1007271383987`). Region: `us-central1` (Firestore's
 region is permanent).
@@ -87,11 +90,26 @@ creates the pool and provider (trusting only this repository by ID), the `github
 account, its roles, permission to act as only the runtime and build accounts, and GitHub's permission
 to impersonate it.
 
-Then run the "Deploy to Google Cloud" workflow from the Actions tab (scope `all` the first time). It
-deploys only what changed since the last deploy (the `deployed-gcp` tag), then runs the smoke test
-(`functions/scripts/smoke.mjs`) against the live URLs: three throwaway users, a tournament walked through
-create, join, teams, Start and the feed, then cleanup. A failed smoke test fails the run and leaves the
-tag where it was. `npm run smoke:emulated` runs the same script against the emulators (CI does this).
+Setup covers both repositories: the backend (functions and rules) and `golf-app-client` (Hosting). The trust rule names
+their numeric IDs (backend 1389607136, client 1389610512); the repository variables below go in BOTH repos.
+
+From then on a push to `main` deploys: the workflow "Deploy to Google Cloud" starts when the "CI" run for that push
+succeeds (never for pull requests or the nightly run). The first real run deploys everything (no `deployed-gcp` tag
+yet); after that it deploys only what changed since that tag. Steps after the deploy: `functions/scripts/post-deploy.mjs`
+(grants `allUsers` + Cloud Run Invoker on every callable, which the deploy does not do, then probes each anonymously
+and expects 401; run it by hand with `npm run post-deploy` from `functions/`, it is safe and idempotent), then the
+smoke test (`functions/scripts/smoke.mjs`) against the live URLs: three throwaway users, a tournament walked through
+create, join, teams, Start and the feed, then cleanup. A failed step fails the run and leaves the tag where it was.
+`npm run smoke:emulated` runs the same script against the emulators (CI does this). "Run workflow" on the Actions tab
+deploys by hand (scope `all` redeploys everything).
+
+**The client** (`golf-app-client/.github/workflows/deploy-hosting.yml`) runs after the client's CI passes on `main`. It
+first waits until this repo's `deployed-gcp` tag equals this repo's `main` (so the functions it calls are live), failing
+fast if that commit's CI failed, then builds the web app and deploys Hosting. Order of events when both repos change:
+push the backend first; the client waits for it on its own. Backend changes must stay backward compatible with the
+previous client for the short gap between the two deploys (add, do not rename or remove, until the client has shipped).
+
+**Rollback:** revert the commit on `main` and push; the same pipeline deploys the revert.
 Never run it against production by hand unless you mean to: it creates and deletes real users and data.
 Not yet validated by a real
 run: expect to adjust a role if a deploy reports a missing permission, and tighten the broad roles
